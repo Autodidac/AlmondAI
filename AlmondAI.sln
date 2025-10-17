@@ -5,9 +5,9 @@ VisualStudioVersion = 17.13.35913.81
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Engine", "AlmondShell\Engine.vcxitems", "{B2F62625-ABDC-43C1-9AC0-379C96B52A74}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "StaticLib1", "AlmondShell\examples\StaticLib1\StaticLib1.vcxproj", "{BBA639B7-2B54-4E38-90AC-667FC3303475}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "AlmondAIEngine", "AlmondShell\examples\AlmondAIEngine\AlmondAIEngine.vcxproj", "{BBA639B7-2B54-4E38-90AC-667FC3303475}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ConsoleApplication1", "AlmondShell\examples\ConsoleApplication1\ConsoleApplication1.vcxproj", "{A27860EC-F347-4945-ACA3-E0E8CE35F8F2}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "AlmondAIRuntime", "AlmondShell\examples\AlmondAIRuntime\AlmondAIRuntime.vcxproj", "{A27860EC-F347-4945-ACA3-E0E8CE35F8F2}"
 	ProjectSection(ProjectDependencies) = postProject
 		{BBA639B7-2B54-4E38-90AC-667FC3303475} = {BBA639B7-2B54-4E38-90AC-667FC3303475}
 	EndProjectSection

@@ -7,7 +7,7 @@
  *  ╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝  ╚═════╝ ╚═╝  ╚═══╝╚═════╝    *
  *                                                            *
  *   This file is part of the Almond Project.                 *
- *   AlmondShell - Modular C++ Framework                      *
+ *   AlmondAI - Modular C++ Framework                       *
  *                                                            *
  *   SPDX-License-Identifier: LicenseRef-MIT-NoSell           *
  *                                                            *
@@ -19,7 +19,7 @@
  *   No obligation to disclose modifications.                 *
  *   See LICENSE file for full terms.                         *
  **************************************************************/
-//main.cpp - the console demonstration of Almond Shell / Almond Engine
+// main.cpp - AlmondAI runtime console demonstration
 #include "almondshell.hpp"
 //#include "../src/aengine.cpp"
 //#include "../src/almondshell"

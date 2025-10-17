@@ -8,7 +8,7 @@
  *                                                           *
  *   This file is part of the Almond Project                 *
  *                                                           *
- *   AlmondShell - Modular C++ Framework                     *
+ *   AlmondAI - Modular C++ Framework                        *
  *                                                           *
  *   Copyright (c) 2025 Adam Rushford                        *
  *   All rights reserved.                                    *
@@ -27,7 +27,7 @@
  *                                                           *
  *************************************************************/
 
- // StaticLib1.cpp : Defines the functions for the static library.
+ // AlmondAIEngine.cpp : Defines the functions for the AlmondAI static library.
 //
 
 #include "pch.h"
@@ -35,6 +35,6 @@
 #include "almondshell.hpp"
 
 // TODO: This is an example of a library function
-void fnStaticLib1()
+void fnAlmondAIEngine()
 {
 }
