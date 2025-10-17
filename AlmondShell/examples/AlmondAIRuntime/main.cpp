@@ -19,7 +19,7 @@
  *   No obligation to disclose modifications.                 *
  *   See LICENSE file for full terms.                         *
  **************************************************************/
-// main.cpp - AlmondAI runtime console demonstration
+ // main.cpp - AlmondAI runtime console demonstration
 
 #include "../../../AlmondAI/include/almondai/serve.hpp"
 #include "../../../AlmondAI/include/almondai/adapter.hpp"
@@ -28,12 +28,14 @@
 
 #include <algorithm>
 #include <cctype>
+#include <charconv>
 #include <filesystem>
 #include <iostream>
-#include <string>
-#include <sstream>
+#include <limits>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
+#include <string>
 #include <variant>
 
 int main() {
@@ -64,14 +66,17 @@ int main() {
     PolicyGovernor governor;
     governor.set_blocklist({ "forbidden", "classified" });
 
-    ContinuousLearner learner(std::move(student), std::move(adapter_manager), std::move(tokenizer), std::move(governor));
+    ContinuousLearner learner(std::move(student),
+        std::move(adapter_manager),
+        std::move(tokenizer),
+        std::move(governor));
     learner.promote_adapter("default");
 
     MCPBridge bridge;
     Service service(learner, bridge);
 
-    std::cout << "AlmondAI interactive console" << std::endl;
-    std::cout << "Type 'help' to list available commands or 'exit' to quit." << std::endl;
+    std::cout << "AlmondAI interactive console\n"
+        "Type 'help' to list available commands or 'exit' to quit.\n";
 
     auto trim = [](std::string& text) {
         auto not_space = [](unsigned char ch) { return !std::isspace(ch); };
@@ -79,73 +84,83 @@ int main() {
         text.erase(std::find_if(text.rbegin(), text.rend(), not_space).base(), text.end());
         };
 
+    // Robust service bridge:
+    // 1) Try parsing the entire buffer as one JSON object.
+    // 2) If that fails, scan all non-empty lines and parse the last valid JSON.
     auto invoke_service = [&service](const std::string& method, Json params) -> std::optional<Json> {
         JsonObject request;
         request["id"] = Json("cli");
-        request["method"] = Json(method);
+        request["method"] = Json(method); // If backend expects "generate"/"retrieve"/"hot-swap", adjust call sites below.
         request["params"] = std::move(params);
 
         std::istringstream input(Json(request).dump() + "\n");
         std::ostringstream output;
         service.run(input, output);
 
-        // Convert the output buffer to an *input* stream for reading lines
-        std::istringstream resp(output.str());
-
-        std::string response_line;
-        // read first non-empty line; trim trailing '\r' (CRLF safety)
-        for (;;) {
-            if (!std::getline(resp, response_line)) {
-                return std::nullopt; // no response
-            }
-            if (!response_line.empty()) {
-                if (!response_line.empty() && response_line.back() == '\r') response_line.pop_back();
-                break;
-            }
+        const std::string buf = output.str();
+        if (buf.empty()) {
+            return std::nullopt;
         }
 
-        try {
-            Json response = Json::parse(response_line);
+        auto try_extract_result = [](const Json& response) -> std::optional<Json> {
             const auto& obj = response.as_object();
-
             if (auto err = obj.find("error"); err != obj.end()) {
                 const auto& err_obj = err->second.as_object();
                 if (auto it = err_obj.find("message"); it != err_obj.end() && it->second.is_string())
                     throw std::runtime_error(it->second.as_string());
                 throw std::runtime_error("service returned an error");
             }
-
             if (auto res = obj.find("result"); res != obj.end()) {
                 return res->second;
             }
             return std::nullopt;
+            };
+
+        // Strategy A: whole buffer is one JSON
+        try {
+            Json whole = Json::parse(buf);
+            if (auto r = try_extract_result(whole)) return r;
         }
-        catch (const std::exception& ex) {
-            throw std::runtime_error(std::string("failed to parse service response: ") + ex.what());
+        catch (...) {
+            // fall through
         }
+
+        // Strategy B: scan lines for last valid JSON with "result"
+        std::istringstream resp(buf);
+        std::string line;
+        std::optional<Json> last_result;
+        while (std::getline(resp, line)) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (line.empty()) continue;
+            try {
+                Json j = Json::parse(line);
+                if (auto r = try_extract_result(j)) last_result = std::move(r);
+            }
+            catch (...) {
+                // ignore non-JSON log lines
+            }
+        }
+        return last_result;
         };
 
     std::string line;
     while (std::cout << "AlmondAI> " && std::getline(std::cin, line)) {
         trim(line);
-        if (line.empty()) {
-            continue;
-        }
+        if (line.empty()) continue;
 
         std::istringstream iss(line);
         std::string command;
         iss >> command;
 
-        if (command == "exit" || command == "quit") {
-            break;
-        }
+        if (command == "exit" || command == "quit") break;
 
         if (command == "help") {
-            std::cout << "Available commands:\n"
-                << "  generate <prompt>      Generate a completion for the prompt.\n"
-                << "  retrieve <query>       Query the retrieval index.\n"
-                << "  hot-swap [name]        Promote adapter <name> or rollback if omitted.\n"
-                << "  exit                   Quit the console." << std::endl;
+            std::cout <<
+                "Available commands:\n"
+                "  generate <prompt>      Generate a completion for the prompt.\n"
+                "  retrieve <query>       Query the retrieval index.\n"
+                "  hot-swap [name]        Promote adapter <name> or rollback if omitted.\n"
+                "  exit                   Quit the console.\n";
             continue;
         }
 
@@ -154,21 +169,27 @@ int main() {
                 std::string prompt;
                 std::getline(iss, prompt);
                 trim(prompt);
-                if (prompt.empty()) {
-                    std::cout << "Prompt cannot be empty." << std::endl;
-                    continue;
-                }
+                if (prompt.empty()) { std::cout << "Prompt cannot be empty.\n"; continue; }
+
                 JsonObject params;
                 params["prompt"] = Json(prompt);
+
+                // If your Service expects plain "generate", change here:
+                // if (auto result = invoke_service("generate", Json(params))) { ... }
                 if (auto result = invoke_service("model.generate", Json(params))) {
                     const auto& obj = result->as_object();
-                    auto it = obj.find("output");
-                    if (it != obj.end() && it->second.is_string()) {
-                        std::cout << it->second.as_string() << std::endl;
+                    if (auto it = obj.find("output"); it != obj.end() && it->second.is_string()) {
+                        std::cout << it->second.as_string() << "\n";
+                    }
+                    else if (auto t = obj.find("text"); t != obj.end() && t->second.is_string()) {
+                        std::cout << t->second.as_string() << "\n";
                     }
                     else {
-                        std::cout << "No output returned." << std::endl;
+                        std::cout << "No output returned.\n";
                     }
+                }
+                else {
+                    std::cout << "(no response)\n";
                 }
                 continue;
             }
@@ -177,29 +198,56 @@ int main() {
                 std::string query;
                 std::getline(iss, query);
                 trim(query);
-                if (query.empty()) {
-                    std::cout << "Query cannot be empty." << std::endl;
-                    continue;
-                }
+                if (query.empty()) { std::cout << "Query cannot be empty.\n"; continue; }
+
                 JsonObject params;
                 params["query"] = Json(query);
+
+                // If your Service expects plain "retrieve", change here:
+                // if (auto result = invoke_service("retrieve", Json(params))) { ... }
                 if (auto result = invoke_service("retrieval.query", Json(params))) {
                     const auto& arr = result->as_array();
                     if (arr.empty()) {
-                        std::cout << "No retrieval hits." << std::endl;
+                        std::cout << "No retrieval hits.\n";
                     }
                     else {
                         for (const auto& item : arr) {
                             const auto& obj = item.as_object();
-                            std::string id = obj.at("document_id").as_string();
+                            std::string id = obj.count("document_id") ? obj.at("document_id").as_string() : "<no-id>";
+
                             double score = 0.0;
-                            const auto& score_json = obj.at("score");
-                            if (std::holds_alternative<double>(score_json.value())) {
-                                score = std::get<double>(score_json.value());
+                            if (auto it = obj.find("score"); it != obj.end()) {
+                                // Accept any arithmetic type or stringified number.
+                                const auto& v = it->second.value(); // variant inside your Json
+                                std::visit([&](const auto& x) {
+                                    using T = std::decay_t<decltype(x)>;
+                                    if constexpr (std::is_arithmetic_v<T>) {
+                                        score = static_cast<double>(x);
+                                    }
+                                    else if constexpr (std::is_same_v<T, std::string>) {
+                                        const char* begin = x.data();
+                                        const char* end = x.data() + x.size();
+                                        // try integer first (fast, no alloc)
+                                        long long ll = 0;
+                                        if (auto [p, ec] = std::from_chars(begin, end, ll); ec == std::errc{} && p == end) {
+                                            score = static_cast<double>(ll);
+                                        }
+                                        else {
+                                            // fallback: double parse
+                                            try { score = std::stod(x); }
+                                            catch (...) {}
+                                        }
+                                    }
+                                    // else: ignore non-numeric types
+                                    }, v);
                             }
-                            std::cout << "- " << id << " (score: " << score << ")" << std::endl;
+
+                            std::cout << "- " << id << " (score: " << score << ")\n";
                         }
                     }
+                }
+                else {
+                    std::cout << "(no response)\n";
                 }
                 continue;
             }
@@ -208,25 +256,26 @@ int main() {
                 std::string name;
                 std::getline(iss, name);
                 trim(name);
+
                 JsonObject params;
-                if (!name.empty()) {
-                    params["name"] = Json(name);
-                }
+                if (!name.empty()) params["name"] = Json(name);
+
+                // If your Service expects "hot-swap", change here:
+                // if (invoke_service("hot-swap", Json(params))) { ... }
                 if (invoke_service("admin.hot_swap", Json(params))) {
-                    if (name.empty()) {
-                        std::cout << "Rolled back to previous adapter." << std::endl;
-                    }
-                    else {
-                        std::cout << "Promoted adapter '" << name << "'." << std::endl;
-                    }
+                    if (name.empty()) std::cout << "Rolled back to previous adapter.\n";
+                    else             std::cout << "Promoted adapter '" << name << "'.\n";
+                }
+                else {
+                    std::cout << "(no response)\n";
                 }
                 continue;
             }
 
-            std::cout << "Unknown command. Type 'help' for a list of commands." << std::endl;
+            std::cout << "Unknown command. Type 'help' for a list of commands.\n";
         }
         catch (const std::exception& ex) {
-            std::cout << "Error: " << ex.what() << std::endl;
+            std::cout << "Error: " << ex.what() << "\n";
         }
     }
 
