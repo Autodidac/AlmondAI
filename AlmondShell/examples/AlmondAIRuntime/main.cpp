@@ -21,13 +21,20 @@
  **************************************************************/
 // main.cpp - AlmondAI runtime console demonstration
 
-
 #include "../../../AlmondAI/include/almondai/serve.hpp"
 #include "../../../AlmondAI/include/almondai/adapter.hpp"
 #include "../../../AlmondAI/include/almondai/tokenizer_word.hpp"
+#include "../../../AlmondAI/include/almondai/json.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <iostream>
+#include <string>
+#include <sstream>
+#include <optional>
+#include <stdexcept>
+#include <variant>
 
 int main() {
     using namespace almondai;
@@ -62,15 +69,173 @@ int main() {
 
     MCPBridge bridge;
     Service service(learner, bridge);
-    service.run(std::cin, std::cout);
+
+    std::cout << "AlmondAI interactive console" << std::endl;
+    std::cout << "Type 'help' to list available commands or 'exit' to quit." << std::endl;
+
+    auto trim = [](std::string& text) {
+        auto not_space = [](unsigned char ch) { return !std::isspace(ch); };
+        text.erase(text.begin(), std::find_if(text.begin(), text.end(), not_space));
+        text.erase(std::find_if(text.rbegin(), text.rend(), not_space).base(), text.end());
+        };
+
+    auto invoke_service = [&service](const std::string& method, Json params) -> std::optional<Json> {
+        JsonObject request;
+        request["id"] = Json("cli");
+        request["method"] = Json(method);
+        request["params"] = std::move(params);
+
+        std::istringstream input(Json(request).dump() + "\n");
+        std::ostringstream output;
+        service.run(input, output);
+
+        // Convert the output buffer to an *input* stream for reading lines
+        std::istringstream resp(output.str());
+
+        std::string response_line;
+        // read first non-empty line; trim trailing '\r' (CRLF safety)
+        for (;;) {
+            if (!std::getline(resp, response_line)) {
+                return std::nullopt; // no response
+            }
+            if (!response_line.empty()) {
+                if (!response_line.empty() && response_line.back() == '\r') response_line.pop_back();
+                break;
+            }
+        }
+
+        try {
+            Json response = Json::parse(response_line);
+            const auto& obj = response.as_object();
+
+            if (auto err = obj.find("error"); err != obj.end()) {
+                const auto& err_obj = err->second.as_object();
+                if (auto it = err_obj.find("message"); it != err_obj.end() && it->second.is_string())
+                    throw std::runtime_error(it->second.as_string());
+                throw std::runtime_error("service returned an error");
+            }
+
+            if (auto res = obj.find("result"); res != obj.end()) {
+                return res->second;
+            }
+            return std::nullopt;
+        }
+        catch (const std::exception& ex) {
+            throw std::runtime_error(std::string("failed to parse service response: ") + ex.what());
+        }
+        };
+
+    std::string line;
+    while (std::cout << "AlmondAI> " && std::getline(std::cin, line)) {
+        trim(line);
+        if (line.empty()) {
+            continue;
+        }
+
+        std::istringstream iss(line);
+        std::string command;
+        iss >> command;
+
+        if (command == "exit" || command == "quit") {
+            break;
+        }
+
+        if (command == "help") {
+            std::cout << "Available commands:\n"
+                << "  generate <prompt>      Generate a completion for the prompt.\n"
+                << "  retrieve <query>       Query the retrieval index.\n"
+                << "  hot-swap [name]        Promote adapter <name> or rollback if omitted.\n"
+                << "  exit                   Quit the console." << std::endl;
+            continue;
+        }
+
+        try {
+            if (command == "generate") {
+                std::string prompt;
+                std::getline(iss, prompt);
+                trim(prompt);
+                if (prompt.empty()) {
+                    std::cout << "Prompt cannot be empty." << std::endl;
+                    continue;
+                }
+                JsonObject params;
+                params["prompt"] = Json(prompt);
+                if (auto result = invoke_service("model.generate", Json(params))) {
+                    const auto& obj = result->as_object();
+                    auto it = obj.find("output");
+                    if (it != obj.end() && it->second.is_string()) {
+                        std::cout << it->second.as_string() << std::endl;
+                    }
+                    else {
+                        std::cout << "No output returned." << std::endl;
+                    }
+                }
+                continue;
+            }
+
+            if (command == "retrieve") {
+                std::string query;
+                std::getline(iss, query);
+                trim(query);
+                if (query.empty()) {
+                    std::cout << "Query cannot be empty." << std::endl;
+                    continue;
+                }
+                JsonObject params;
+                params["query"] = Json(query);
+                if (auto result = invoke_service("retrieval.query", Json(params))) {
+                    const auto& arr = result->as_array();
+                    if (arr.empty()) {
+                        std::cout << "No retrieval hits." << std::endl;
+                    }
+                    else {
+                        for (const auto& item : arr) {
+                            const auto& obj = item.as_object();
+                            std::string id = obj.at("document_id").as_string();
+                            double score = 0.0;
+                            const auto& score_json = obj.at("score");
+                            if (std::holds_alternative<double>(score_json.value())) {
+                                score = std::get<double>(score_json.value());
+                            }
+                            std::cout << "- " << id << " (score: " << score << ")" << std::endl;
+                        }
+                    }
+                }
+                continue;
+            }
+
+            if (command == "hot-swap") {
+                std::string name;
+                std::getline(iss, name);
+                trim(name);
+                JsonObject params;
+                if (!name.empty()) {
+                    params["name"] = Json(name);
+                }
+                if (invoke_service("admin.hot_swap", Json(params))) {
+                    if (name.empty()) {
+                        std::cout << "Rolled back to previous adapter." << std::endl;
+                    }
+                    else {
+                        std::cout << "Promoted adapter '" << name << "'." << std::endl;
+                    }
+                }
+                continue;
+            }
+
+            std::cout << "Unknown command. Type 'help' for a list of commands." << std::endl;
+        }
+        catch (const std::exception& ex) {
+            std::cout << "Error: " << ex.what() << std::endl;
+        }
+    }
+
     return 0;
 }
 
 
 
-
-
-#include "almondshell.hpp"
+//#include "almondshell.hpp"
 ////#include "../src/aengine.cpp"
 ////#include "../src/almondshell"
 //
