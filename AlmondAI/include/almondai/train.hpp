@@ -1,12 +1,12 @@
 #pragma once
 
-#include "almondai/model.hpp"
-#include "almondai/adapter.hpp"
-#include "almondai/tokenizer_word.hpp"
-#include "almondai/ingest.hpp"
-#include "almondai/retrieval.hpp"
-#include "almondai/eval.hpp"
-#include "almondai/governor.hpp"
+#include "../AlmondAI/include/almondai/model.hpp"
+#include "../AlmondAI/include/almondai/adapter.hpp"
+#include "../AlmondAI/include/almondai/tokenizer_word.hpp"
+#include "../AlmondAI/include/almondai/ingest.hpp"
+#include "../AlmondAI/include/almondai/retrieval.hpp"
+#include "../AlmondAI/include/almondai/eval.hpp"
+#include "../AlmondAI/include/almondai/governor.hpp"
 
 #include <optional>
 #include <fstream>

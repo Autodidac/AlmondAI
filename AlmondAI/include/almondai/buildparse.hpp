@@ -1,6 +1,6 @@
 #pragma once
 
-#include "almondai/json.hpp"
+#include "../AlmondAI/include/almondai/json.hpp"
 
 #include <string>
 

@@ -1,4 +1,4 @@
-#include "almondai/adapter.hpp"
+#include "../AlmondAI/include/almondai/adapter.hpp"
 
 #include <random>
 #include <chrono>

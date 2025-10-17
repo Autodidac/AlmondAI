@@ -1,4 +1,4 @@
-#include "almondai/buildparse.hpp"
+#include "../AlmondAI/include/almondai/buildparse.hpp"
 
 #include <fstream>
 #include <sstream>

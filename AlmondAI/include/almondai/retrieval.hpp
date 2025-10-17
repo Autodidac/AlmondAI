@@ -1,6 +1,6 @@
 #pragma once
 
-#include "almondai/tokenizer_word.hpp"
+#include "../AlmondAI/include/almondai/tokenizer_word.hpp"
 
 #include <string>
 #include <vector>

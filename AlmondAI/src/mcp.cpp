@@ -1,4 +1,4 @@
-#include "almondai/mcp.hpp"
+#include "../AlmondAI/include/almondai/mcp.hpp"
 
 #include <sstream>
 

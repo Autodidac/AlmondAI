@@ -1,6 +1,6 @@
-#include "almondai/serve.hpp"
-#include "almondai/adapter.hpp"
-#include "almondai/tokenizer_word.hpp"
+#include "../AlmondAI/include/almondai/serve.hpp"
+#include "../AlmondAI/include/almondai/adapter.hpp"
+#include "../AlmondAI/include/almondai/tokenizer_word.hpp"
 
 #include <filesystem>
 #include <iostream>

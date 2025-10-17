@@ -14,6 +14,19 @@
     <ProjectCapability Include="SourceItemsFromImports" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\adapter.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\buildparse.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\eval.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\governor.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\ingest.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\json.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\mcp.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\model.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\retrieval.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\serve.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\tensor.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\tokenizer_word.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\train.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)include\a2048like.hpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">false</ExcludedFromBuild>
@@ -195,6 +208,20 @@
     <ResourceCompile Include="$(MSBuildThisFileDirectory)src\WinResource.rc" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\adapter.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\buildparse.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\eval.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\governor.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\ingest.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\json.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\main.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\mcp.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\model.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\retrieval.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\serve.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\tensor.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\tokenizer_word.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\train.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)src\acompiler.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)src\acontext.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">false</ExcludedFromBuild>

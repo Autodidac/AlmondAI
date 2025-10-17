@@ -103,6 +103,12 @@
     <Filter Include="Header Files\core\platform">
       <UniqueIdentifier>{d4d94f55-512b-4b47-9645-de2196105cd8}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Header Files\AlmondAI">
+      <UniqueIdentifier>{926c4672-a6de-4cea-ae92-464ed91c8845}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\AlmondAI">
+      <UniqueIdentifier>{5a342567-931d-404c-a531-950a6c3eab9c}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="$(MSBuildThisFileDirectory)include\almondengine.hpp">
@@ -465,6 +471,45 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)include\astringconverter.hpp">
       <Filter>Header Files\core\utilities</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\adapter.hpp">
+      <Filter>Header Files\AlmondAI</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\buildparse.hpp">
+      <Filter>Header Files\AlmondAI</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\eval.hpp">
+      <Filter>Header Files\AlmondAI</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\governor.hpp">
+      <Filter>Header Files\AlmondAI</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\ingest.hpp">
+      <Filter>Header Files\AlmondAI</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\json.hpp">
+      <Filter>Header Files\AlmondAI</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\mcp.hpp">
+      <Filter>Header Files\AlmondAI</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\model.hpp">
+      <Filter>Header Files\AlmondAI</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\retrieval.hpp">
+      <Filter>Header Files\AlmondAI</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\serve.hpp">
+      <Filter>Header Files\AlmondAI</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\tensor.hpp">
+      <Filter>Header Files\AlmondAI</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\tokenizer_word.hpp">
+      <Filter>Header Files\AlmondAI</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\train.hpp">
+      <Filter>Header Files\AlmondAI</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Image Include="$(MSBuildThisFileDirectory)src\icon.ico">
@@ -508,6 +553,48 @@
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)src\acontextmultiplexer.cpp">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\adapter.cpp">
+      <Filter>Source Files\AlmondAI</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\buildparse.cpp">
+      <Filter>Source Files\AlmondAI</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\eval.cpp">
+      <Filter>Source Files\AlmondAI</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\governor.cpp">
+      <Filter>Source Files\AlmondAI</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\ingest.cpp">
+      <Filter>Source Files\AlmondAI</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\json.cpp">
+      <Filter>Source Files\AlmondAI</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\main.cpp">
+      <Filter>Source Files\AlmondAI</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\mcp.cpp">
+      <Filter>Source Files\AlmondAI</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\model.cpp">
+      <Filter>Source Files\AlmondAI</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\retrieval.cpp">
+      <Filter>Source Files\AlmondAI</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\serve.cpp">
+      <Filter>Source Files\AlmondAI</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\tensor.cpp">
+      <Filter>Source Files\AlmondAI</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\tokenizer_word.cpp">
+      <Filter>Source Files\AlmondAI</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\train.cpp">
+      <Filter>Source Files\AlmondAI</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

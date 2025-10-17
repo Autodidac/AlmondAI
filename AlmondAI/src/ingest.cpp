@@ -1,4 +1,4 @@
-#include "almondai/ingest.hpp"
+#include "../AlmondAI/include/almondai/ingest.hpp"
 
 #include <regex>
 #include <chrono>

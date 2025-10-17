@@ -1,4 +1,4 @@
-#include "almondai/eval.hpp"
+#include "../AlmondAI/include/almondai/eval.hpp"
 
 #include <algorithm>
 #include <numeric>

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "almondai/model.hpp"
-#include "almondai/ingest.hpp"
-#include "almondai/tokenizer_word.hpp"
+#include "../AlmondAI/include/almondai/model.hpp"
+#include "../AlmondAI/include/almondai/ingest.hpp"
+#include "../AlmondAI/include/almondai/tokenizer_word.hpp"
 
 #include <vector>
 

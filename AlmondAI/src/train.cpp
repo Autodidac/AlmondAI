@@ -1,4 +1,4 @@
-#include "almondai/train.hpp"
+#include "../AlmondAI/include/almondai/train.hpp"
 
 #include <algorithm>
 #include <iomanip>

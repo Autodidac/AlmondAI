@@ -1,9 +1,10 @@
-#include "almondai/tokenizer_word.hpp"
+#include "../AlmondAI/include/almondai/tokenizer_word.hpp"
 
 #include <locale>
 #include <algorithm>
 #include <sstream>
 #include <mutex>
+#include <cwctype> // Add this at the top if not already present
 
 namespace almondai {
 
@@ -86,7 +87,7 @@ bool WordTokenizer::is_delimiter(char32_t c) {
             break;
         }
     }
-    return std::iswspace(static_cast<wchar_t>(c)) != 0;
+    return ::iswspace(static_cast<wchar_t>(c)) != 0;
 }
 
 std::vector<std::string> WordTokenizer::tokenize(const std::string& text) const {
