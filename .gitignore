@@ -1,0 +1,60 @@
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+Debug/
+Release/
+x64/*
+out/
+build_clang/
+built/
+build_gcc/
+vcpkg_installed/
+bin/*
+.vs/
+backup/
+app1/x64/
+Application1/x64/
+StaticLib1/x64/
+
+app1/Debug
+Application1/Debug
+StaticLib1/Debug
+
+app1/Release
+Application1/Release
+StaticLib1/Release
+
+*.pdb
+*.idb
+*.log
+*.tlog
