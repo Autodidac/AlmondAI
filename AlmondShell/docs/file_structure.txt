@@ -71,12 +71,12 @@
 │   │── main.cpp                  # Main entry point
 │
 │── examples/
-│   │── ConsoleApplication1/
-│   │   │── main.cpp              # Example console application
-│   │   │── ConsoleApplication1.vcxproj.filters # Visual Studio filters
+│   │── AlmondAIRuntime/
+│   │   │── main.cpp              # Example runtime harness
+│   │   │── AlmondAIRuntime.vcxproj.filters # Visual Studio filters
 │   │
-│   │── StaticLib1/
+│   │── AlmondAIEngine/
 │   │   │── pch.cpp               # Precompiled header source
-│   │   │── StaticLib1.vcxproj.filters # Visual Studio filters
+│   │   │── AlmondAIEngine.vcxproj.filters # Visual Studio filters
 │
 │── CMakeLists.txt                # CMake build script
