@@ -44,12 +44,42 @@ else()
 endif()
 
 # Include sub-projects
-add_subdirectory("cmakeapp1")
-add_subdirectory("app1")
+option(ALMONDAI_BUILD_LEGACY "Build legacy sample targets" OFF)
+if (ALMONDAI_BUILD_LEGACY)
+    add_subdirectory("cmakeapp1")
+    add_subdirectory("app1")
+    add_subdirectory ("Application1")
+    add_subdirectory ("StaticLib1")
+endif()
 
-add_subdirectory ("Application1")
-add_subdirectory ("StaticLib1")
+set(ALMONDAI_SOURCES
+    src/tensor.cpp
+    src/adapter.cpp
+    src/tokenizer_word.cpp
+    src/retrieval.cpp
+    src/governor.cpp
+    src/ingest.cpp
+    src/train.cpp
+    src/model.cpp
+    src/eval.cpp
+    src/mcp.cpp
+    src/serve.cpp
+    src/buildparse.cpp
+)
 
+add_library(almondai STATIC ${ALMONDAI_SOURCES})
+target_include_directories(almondai PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_compile_features(almondai PUBLIC cxx_std_20)
+
+add_executable(almondai_console src/main.cpp)
+target_link_libraries(almondai_console PRIVATE almondai)
+
+set_target_properties(almondai PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+)
+set_target_properties(almondai_console PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+)
 
 
 
