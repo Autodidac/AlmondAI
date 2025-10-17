@@ -1,8 +1,8 @@
 #pragma once
 
-#include "../AlmondAI/include/almondai/train.hpp"
-#include "../AlmondAI/include/almondai/mcp.hpp"
-#include "../AlmondAI/include/almondai/buildparse.hpp"
+#include "train.hpp"
+#include "mcp.hpp"
+#include "buildparse.hpp"
 
 #include <istream>
 #include <ostream>

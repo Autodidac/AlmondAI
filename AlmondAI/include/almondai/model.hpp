@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../AlmondAI/include/almondai/tensor.hpp"
+#include "tensor.hpp"
 
 #include <vector>
 #include <string>
