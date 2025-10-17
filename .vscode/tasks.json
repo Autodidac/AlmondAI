@@ -1,315 +1,393 @@
 {
   "version": "2.0.0",
   "tasks": [
-    // ============================
-    // Windows Tasks
-    // ============================
     {
-      "label": "Configure (GCC, Windows, Release)",
+      "label": "Clean DLL",
       "type": "shell",
-      "command": "cmake",
+      "command": "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe",
       "args": [
-        "-S", ".",
-        "-B", "bin/GCC-Release",
-        "-DCMAKE_INSTALL_PREFIX=${workspaceFolder}/built",
-        "-DCMAKE_TOOLCHAIN_FILE=C:/Users/me/source/repos/vcpkg/scripts/buildsystems/vcpkg.cmake",
-        "-DCMAKE_BUILD_TYPE=Release",
-        "-DCMAKE_C_COMPILER=gcc",
-        "-DCMAKE_CXX_COMPILER=g++"
+        "${workspaceFolder}\\AlmondShell\\examples\\Example_Dll1\\Example_Dll1.vcxproj",
+        "/t:Clean"
       ],
-      "options": {
-        "env": {
-          "VCPKG_FEATURE_FLAGS": "manifests",
-          "VCPKG_INSTALLATION_ROOT": "${workspaceFolder}/vcpkg_installed"
-        }
-      },
-      "windows": {},
-      "problemMatcher": []
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      }
     },
     {
-      "label": "Build (GCC, Windows, Release)",
+      "label": "Build DLL",
       "type": "shell",
-      "command": "cmake",
-      "args": ["--build", "bin/GCC-Release"],
-      "dependsOn": "Configure (GCC, Windows, Release)",
-      "group": { "kind": "build", "isDefault": true },
-      "windows": {},
-      "problemMatcher": []
-    },
-    {
-      "label": "Configure (GCC, Windows, Debug)",
-      "type": "shell",
-      "command": "cmake",
+      "command": "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe",
       "args": [
-        "-S", ".",
-        "-B", "bin/GCC-Debug",
-        "-DCMAKE_INSTALL_PREFIX=${workspaceFolder}/built",
-        "-DCMAKE_TOOLCHAIN_FILE=C:/Users/me/source/repos/vcpkg/scripts/buildsystems/vcpkg.cmake",
-        "-DCMAKE_BUILD_TYPE=Debug",
-        "-DCMAKE_C_COMPILER=gcc",
-        "-DCMAKE_CXX_COMPILER=g++"
+        "${workspaceFolder}\\AlmondShell\\examples\\Example_Dll1\\Example_Dll1.vcxproj",
+        "/property:GenerateFullPaths=true",
+        "/t:Build",
+        "/p:Platform=x64",
+        "/p:Configuration=Debug",
+        "/p:ConfigurationType=DynamicLibrary",
+        "/p:OutDir=${workspaceFolder}\\AlmondShell\\examples\\bin\\x64\\Debug\\",
+        "/p:AdditionalLibraryDirectories=C:\\Users\\iammi\\Documents\\repos\\vcpkg\\installed\\x64-windows\\lib",
+        "/p:AdditionalDependencies=zlib.lib"
       ],
-      "options": {
-        "env": {
-          "VCPKG_FEATURE_FLAGS": "manifests",
-          "VCPKG_INSTALLATION_ROOT": "${workspaceFolder}/vcpkg_installed"
-        }
-      },
-      "windows": {},
-      "problemMatcher": []
+      "problemMatcher": [
+        "$msCompile"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      }
     },
     {
-      "label": "Build (GCC, Windows, Debug)",
+      "label": "Clean Static Library",
       "type": "shell",
-      "command": "cmake",
-      "args": ["--build", "bin/GCC-Debug"],
-      "dependsOn": "Configure (GCC, Windows, Debug)",
-      "group": "build",
-      "windows": {},
-      "problemMatcher": []
-    },
-    {
-      "label": "Configure (Clang, Windows, Release)",
-      "type": "shell",
-      "command": "cmake",
+      "command": "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe",
       "args": [
-        "-S", ".",
-        "-B", "bin/Clang-Release",
-        "-DCMAKE_INSTALL_PREFIX=${workspaceFolder}/built",
-        "-DCMAKE_TOOLCHAIN_FILE=C:/Users/me/source/repos/vcpkg/scripts/buildsystems/vcpkg.cmake",
-        "-DCMAKE_BUILD_TYPE=Release",
-        "-DCMAKE_C_COMPILER=clang",
-        "-DCMAKE_CXX_COMPILER=clang++"
+        "${workspaceFolder}\\AlmondShell\\examples\\Example_StaticLib1\\Example_StaticLib1.vcxproj",
+        "/t:Clean"
       ],
-      "options": {
-        "env": {
-          "VCPKG_FEATURE_FLAGS": "manifests",
-          "VCPKG_INSTALLATION_ROOT": "${workspaceFolder}/vcpkg_installed"
-        }
-      },
-      "windows": {},
-      "problemMatcher": []
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      }
     },
     {
-      "label": "Build (Clang, Windows, Release)",
+      "label": "Build Static Library",
       "type": "shell",
-      "command": "cmake",
-      "args": ["--build", "bin/Clang-Release"],
-      "dependsOn": "Configure (Clang, Windows, Release)",
-      "group": "build",
-      "windows": {},
-      "problemMatcher": []
-    },
-    {
-      "label": "Configure (Clang, Windows, Debug)",
-      "type": "shell",
-      "command": "cmake",
+      "command": "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe",
       "args": [
-        "-S", ".",
-        "-B", "bin/Clang-Debug",
-        "-DCMAKE_INSTALL_PREFIX=${workspaceFolder}/built",
-        "-DCMAKE_TOOLCHAIN_FILE=C:/Users/me/source/repos/vcpkg/scripts/buildsystems/vcpkg.cmake",
-        "-DCMAKE_BUILD_TYPE=Debug",
-        "-DCMAKE_C_COMPILER=clang",
-        "-DCMAKE_CXX_COMPILER=clang++"
+        "${workspaceFolder}\\AlmondShell\\examples\\Example_StaticLib1\\Example_StaticLib1.vcxproj",
+        "/property:GenerateFullPaths=true",
+        "/t:Build",
+        "/p:Platform=x64",
+        "/p:Configuration=Debug",
+        "/p:OutDir=${workspaceFolder}\\AlmondShell\\examples\\bin\\x64\\Debug\\",
+        "/p:AdditionalLibraryDirectories=C:\\Users\\iammi\\Documents\\repos\\vcpkg\\installed\\x64-windows\\lib",
+        "/p:AdditionalDependencies=zlib.lib"
       ],
-      "options": {
-        "env": {
-          "VCPKG_FEATURE_FLAGS": "manifests",
-          "VCPKG_INSTALLATION_ROOT": "${workspaceFolder}/vcpkg_installed"
-        }
-      },
-      "windows": {},
-      "problemMatcher": []
+      "problemMatcher": [
+        "$msCompile"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      }
     },
     {
-      "label": "Build (Clang, Windows, Debug)",
+      "label": "Clean Executable",
       "type": "shell",
-      "command": "cmake",
-      "args": ["--build", "bin/Clang-Debug"],
-      "dependsOn": "Configure (Clang, Windows, Debug)",
-      "group": "build",
-      "windows": {},
-      "problemMatcher": []
-    },
-
-    // ============================
-    // Linux Tasks
-    // ============================
-    {
-      "label": "Configure (GCC, Linux, Release)",
-      "type": "shell",
-      "command": "cmake",
+      "command": "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe",
       "args": [
-        "-S", ".",
-        "-B", "bin/GCC-Release",
-        "-DCMAKE_INSTALL_PREFIX=${workspaceFolder}/built",
-        "-DCMAKE_TOOLCHAIN_FILE=/home/dude/Documents/repos/vcpkg/scripts/buildsystems/vcpkg.cmake",
-        "-DCMAKE_BUILD_TYPE=Release",
-        "-DCMAKE_C_COMPILER=gcc",
-        "-DCMAKE_CXX_COMPILER=g++"
+        "${workspaceFolder}\\AlmondShell\\examples\\Example_ConsoleApplication\\Example_ConsoleApplication.vcxproj",
+        "/t:Clean"
       ],
-      "options": {
-        "env": {
-          "VCPKG_FEATURE_FLAGS": "manifests",
-          "VCPKG_INSTALLATION_ROOT": "${workspaceFolder}/vcpkg_installed"
-        }
-      },
-      "linux": {},
-      "problemMatcher": []
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      }
     },
     {
-      "label": "Build (GCC, Linux, Release)",
+      "label": "Build Executable",
       "type": "shell",
-      "command": "cmake",
-      "args": ["--build", "bin/GCC-Release"],
-      "dependsOn": "Configure (GCC, Linux, Release)",
-      "group": { "kind": "build", "isDefault": true },
-      "linux": {},
-      "problemMatcher": []
-    },
-    {
-      "label": "Configure (GCC, Linux, Debug)",
-      "type": "shell",
-      "command": "cmake",
+      "command": "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe",
       "args": [
-        "-S", ".",
-        "-B", "bin/GCC-Debug",
-        "-DCMAKE_INSTALL_PREFIX=${workspaceFolder}/built",
-        "-DCMAKE_TOOLCHAIN_FILE=/home/dude/Documents/repos/vcpkg/scripts/buildsystems/vcpkg.cmake",
-        "-DCMAKE_BUILD_TYPE=Debug",
-        "-DCMAKE_C_COMPILER=gcc",
-        "-DCMAKE_CXX_COMPILER=g++"
+        "${workspaceFolder}\\AlmondShell\\examples\\Example_ConsoleApplication\\Example_ConsoleApplication.vcxproj",
+        "/property:GenerateFullPaths=true",
+        "/t:Build",
+        "/p:Platform=x64",
+        "/p:Configuration=Debug",
+        "/p:OutDir=${workspaceFolder}\\AlmondShell\\examples\\bin\\x64\\Debug\\"
       ],
-      "options": {
-        "env": {
-          "VCPKG_FEATURE_FLAGS": "manifests",
-          "VCPKG_INSTALLATION_ROOT": "${workspaceFolder}/vcpkg_installed"
-        }
-      },
-      "linux": {},
-      "problemMatcher": []
+      "problemMatcher": [
+        "$msCompile"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      }
     },
     {
-      "label": "Build (GCC, Linux, Debug)",
+      "label": "Clean Windows App",
       "type": "shell",
-      "command": "cmake",
-      "args": ["--build", "bin/GCC-Debug"],
-      "dependsOn": "Configure (GCC, Linux, Debug)",
-      "group": "build",
-      "linux": {},
-      "problemMatcher": []
-    },
-    {
-      "label": "Configure (Clang, Linux, Release)",
-      "type": "shell",
-      "command": "cmake",
+      "command": "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe",
       "args": [
-        "-S", ".",
-        "-B", "bin/Clang-Release",
-        "-DCMAKE_INSTALL_PREFIX=${workspaceFolder}/built",
-        "-DCMAKE_TOOLCHAIN_FILE=/home/dude/Documents/repos/vcpkg/scripts/buildsystems/vcpkg.cmake",
-        "-DCMAKE_BUILD_TYPE=Release",
-        "-DCMAKE_C_COMPILER=clang",
-        "-DCMAKE_CXX_COMPILER=clang++"
+        "${workspaceFolder}\\AlmondShell\\examples\\Example_WindowsProject1\\Example_WindowsProject1.vcxproj",
+        "/t:Clean"
       ],
-      "options": {
-        "env": {
-          "VCPKG_FEATURE_FLAGS": "manifests",
-          "VCPKG_INSTALLATION_ROOT": "${workspaceFolder}/vcpkg_installed"
-        }
-      },
-      "linux": {},
-      "problemMatcher": []
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      }
     },
     {
-      "label": "Build (Clang, Linux, Release)",
+      "label": "Build Windows App",
       "type": "shell",
-      "command": "cmake",
-      "args": ["--build", "bin/Clang-Release"],
-      "dependsOn": "Configure (Clang, Linux, Release)",
-      "group": "build",
-      "linux": {},
-      "problemMatcher": []
-    },
-    {
-      "label": "Configure (Clang, Linux, Debug)",
-      "type": "shell",
-      "command": "cmake",
+      "command": "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe",
       "args": [
-        "-S", ".",
-        "-B", "bin/Clang-Debug",
-        "-DCMAKE_INSTALL_PREFIX=${workspaceFolder}/built",
-        "-DCMAKE_TOOLCHAIN_FILE=/home/dude/Documents/repos/vcpkg/scripts/buildsystems/vcpkg.cmake",
-        "-DCMAKE_BUILD_TYPE=Debug",
-        "-DCMAKE_C_COMPILER=clang",
-        "-DCMAKE_CXX_COMPILER=clang++"
+        "${workspaceFolder}\\AlmondShell\\examples\\Example_WindowsProject1\\Example_WindowsProject1.vcxproj",
+        "/property:GenerateFullPaths=true",
+        "/t:Build",
+        "/p:Platform=x64",
+        "/p:Configuration=Debug",
+        "/p:OutDir=${workspaceFolder}\\AlmondShell\\examples\\bin\\x64\\Debug\\"
       ],
-      "options": {
-        "env": {
-          "VCPKG_FEATURE_FLAGS": "manifests",
-          "VCPKG_INSTALLATION_ROOT": "${workspaceFolder}/vcpkg_installed"
-        }
-      },
-      "linux": {},
-      "problemMatcher": []
+      "problemMatcher": [
+        "$msCompile"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      }
     },
     {
-      "label": "Build (Clang, Linux, Debug)",
-      "type": "shell",
-      "command": "cmake",
-      "args": ["--build", "bin/Clang-Debug"],
-      "dependsOn": "Configure (Clang, Linux, Debug)",
-      "group": "build",
-      "linux": {},
-      "problemMatcher": []
-    },
-
-    // ============================
-    // Clean Tasks
-    // ============================
-    {
-      "label": "Clean (Windows)",
-      "type": "shell",
-      "command": "powershell",
-      "args": [
-        "-Command",
-        "Remove-Item -Recurse -Force bin/GCC-Release, bin/GCC-Debug, bin/Clang-Release, bin/Clang-Debug, ${workspaceFolder}/vcpkg_installed"
+      "label": "Clean & Build DLL",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Clean DLL",
+        "Build DLL"
       ],
-      "windows": {},
-      "problemMatcher": []
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      }
     },
     {
-      "label": "Clean (Linux)",
-      "type": "shell",
-      "command": "rm",
-      "args": [
-        "-rf",
-        "bin/GCC-Release",
-        "bin/GCC-Debug",
-        "bin/Clang-Release",
-        "bin/Clang-Debug",
-        "${workspaceFolder}/vcpkg_installed"
+      "label": "Clean & Build Static Library",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Clean Static Library",
+        "Build Static Library"
       ],
-      "linux": {},
-      "problemMatcher": []
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      }
+    },
+    {
+      "label": "Clean & Build Executable",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Clean Executable",
+        "Build Executable"
+      ],
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      }
+    },
+    {
+      "label": "Clean & Build Windows App",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Clean Windows App",
+        "Build Windows App"
+      ],
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      }
+    },
+    {
+      "label": "Clean & Build All",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Clean & Build Static Library",
+        "Clean & Build DLL",
+        "Clean & Build Executable",
+        "Clean & Build Windows App"
+      ],
+      "problemMatcher": [],
+      "group": "build"
     },
     {
       "label": "Build All",
+      "dependsOrder": "sequence",
       "dependsOn": [
-        "Build (GCC, Windows, Release)",
-        "Build (GCC, Windows, Debug)",
-        "Build (Clang, Windows, Release)",
-        "Build (Clang, Windows, Debug)",
-        "Build (GCC, Linux, Release)",
-        "Build (GCC, Linux, Debug)",
-        "Build (Clang, Linux, Release)",
-        "Build (Clang, Linux, Debug)"
+        "Build Static Library",
+        "Build DLL",
+        "Build Executable",
+        "Build Windows App"
       ],
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      }
+    },
+    {
+      "label": "Clean All",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Clean Static Library",
+        "Clean DLL",
+        "Clean Executable",
+        "Clean Windows App"
+      ],
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      }
+    },
+    {
+      "label": "Configure (GCC)",
       "type": "shell",
-      "command": "echo",
-      "args": ["Build all compilers complete."],
-      "group": "build"
+      "command": "cmake",
+      "args": [
+        "-DCMAKE_PREFIX_PATH=/home/dude/Documents/repos/AlmondShell/build/vcpkg_installed/x64-linux/share/gladConfig.cmake",
+        "-DCMAKE_PREFIX_PATH=/home/dude/Documents/repos/AlmondShell/build/vcpkg_installed/x64-linux/share/glmConfig.cmake",
+        "-DCMAKE_PREFIX_PATH=/home/dude/Documents/repos/AlmondShell/build/vcpkg_installed/x64-linux/share/sdl3/SDL3/SDL3Config.cmake",
+        "-DCMAKE_PREFIX_PATH=/home/dude/Documents/repos/AlmondShell/build/vcpkg_installed/x64-linux/share/glfw3/glfw3Config.cmake",
+        "-DCMAKE_TOOLCHAIN_FILE=/home/dude/Documents/repos/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "-DCMAKE_BUILD_TYPE=Debug",
+        "-DCMAKE_C_COMPILER=gcc",
+        "-DCMAKE_CXX_COMPILER=g++",
+        "-B",
+        "build"
+      ],
+      "options": {
+        "env": {
+          "VCPKG_FEATURE_FLAGS": "manifests"
+        }
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": {
+        "owner": "cpp",
+        "fileLocation": [
+          "relative",
+          "${workspaceFolder}"
+        ],
+        "pattern": {
+          "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "message": 5
+        }
+      },
+      "detail": "Configure the project using GCC"
+    },
+    {
+      "label": "Configure (Clang)",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "-DCMAKE_PREFIX_PATH=/home/dude/Documents/repos/AlmondShell/build/vcpkg_installed/x64-linux/share/gladConfig.cmake",
+        "-DCMAKE_PREFIX_PATH=/home/dude/Documents/repos/AlmondShell/build/vcpkg_installed/x64-linux/share/glmConfig.cmake",
+        "-DCMAKE_PREFIX_PATH=/home/dude/Documents/repos/AlmondShell/build/vcpkg_installed/x64-linux/share/sdl3/SDL3/SDL3Config.cmake",
+        "-DCMAKE_PREFIX_PATH=/home/dude/Documents/repos/AlmondShell/build/vcpkg_installed/x64-linux/share/glfw3/glfw3Config.cmake",
+        "-DCMAKE_TOOLCHAIN_FILE=/home/dude/Documents/repos/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "-DCMAKE_BUILD_TYPE=Debug",
+        "-DCMAKE_C_COMPILER=clang",
+        "-DCMAKE_CXX_COMPILER=clang++",
+        "-B",
+        "build"
+      ],
+      "options": {
+        "env": {
+          "VCPKG_FEATURE_FLAGS": "manifests"
+        }
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "problemMatcher": {
+        "owner": "cpp",
+        "fileLocation": [
+          "relative",
+          "${workspaceFolder}"
+        ],
+        "pattern": {
+          "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "message": 5
+        }
+      },
+      "detail": "Configure the project using Clang"
+    },
+    {
+      "label": "Build",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "--build",
+        "build"
+      ],
+      "options": {
+        "env": {
+          "VCPKG_FEATURE_FLAGS": "manifests"
+        }
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": {
+        "owner": "cpp",
+        "fileLocation": [
+          "relative",
+          "${workspaceFolder}"
+        ],
+        "pattern": {
+          "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "message": 5
+        }
+      },
+      "detail": "Build the entire project"
+    },
+    {
+      "label": "Configure (Windows)",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "-DCMAKE_TOOLCHAIN_FILE=${workspaceFolder}/path_to_vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "-DCMAKE_PREFIX_PATH=${workspaceFolder}/path_to_vcpkg_installed/x64-windows/share/",
+        "-DCMAKE_BUILD_TYPE=Debug",
+        "-DCMAKE_C_COMPILER=cl",
+        "-DCMAKE_CXX_COMPILER=cl",
+        "-B",
+        "build"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": {
+        "owner": "cpp",
+        "fileLocation": [
+          "relative",
+          "${workspaceFolder}"
+        ],
+        "pattern": {
+          "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "message": 5
+        }
+      },
+      "detail": "Configure the project for Windows build using vcpkg"
     }
+    
   ]
 }

@@ -1,71 +1,231 @@
-26 hours + [![wakatime](https://wakatime.com/badge/github/Autodidac/Cpp20_Ultimate_Project_Template.svg)](https://wakatime.com/badge/github/Autodidac/Cpp20_Ultimate_Project_Template)
 
-# Cpp20_Ultimate_Project_Template
-The Ultimate Hello World - Cross Platform, Multi Editor Enabled Application/Library Project Template For C++20
-Contains scripts and build systems to build with virtually any Compiler on any IDE, Code Editor, or Terminal
+<img align="left" src="Images/567.jpg" width="70px"/>
 
 
-## NOTICE : You'll want to immediately change the license info upon use of this template repo, make it your own you have permission, thank you! I just don't want anything coming back on me otherwise it's already probably mostly public domain anyways, enjoy!
-all that I ask is that you DO change the license to your own name or company, pseudonym.. so that you make it your OWN template, and a simple acknowledgement is appreciated, take care! 
+# AlmondShell
 
+**AlmondShell** is a modern **C++20 software engine** that forms the foundation layer for the evolving AlmondEngine project.
+It distils over **4,000 hours** of engineering effort invested into getting a multi-context, multi-threaded, fully featured atlas system working—resulting in a flexible runtime that can:
 
+- Substitute AlmondEngine's Vulkan and DirectX layers with multiple 2D graphics back-end contexts.
+- Host entire engines such as **SDL3**, **SFML**, and **Raylib** inside a multi-threaded, multi-context environment with fine-grained configuration control.
+- Provide its own internal OpenGL, software, and no-op renderers alongside headless execution modes.
+- Offer state-of-the-art networking via Steam servers with automatic ASIO fallback.
 
-## Multiplatform Build System
-Including CMake, vscode, msvc, builds.
+The runtime is designed for rapid iteration with hot-reloadable scripting, a self-updating launcher capable of downloading and building from source, and the low-level systems that power rendering, scripting, task scheduling, and asset pipelines. Editor automation currently lives in `src/scripts/`, which the runtime watches and reloads on demand.
 
+- **End users** can download the prebuilt binary, drop it into an empty directory, and let AlmondShell populate the latest files automatically.
+(Currently disabled while under active development.)
 
+---
 
+## Architectural Pillars
 
+- 🧱 **Static Linking First**  
+  AlmondShell's runtime is delivered as a fully static target, ensuring deterministic deployment, predictable performance, and portability across distribution channels.
+- 📚 **Header-Only Core**  
+  The primary engine modules live in headers so they can be inlined, composed, and consumed without linker gymnastics, unlocking rapid iteration for integrators.
+- 🧠 **Functional Flow**  
+  Systems are composed in a functional style that favours pure interfaces and immutable data where possible, simplifying reasoning about complex runtime state.
 
-### On Windows
+---
 
-You'll need to set this in console for vcpkg manifest, it's required for cmake
-```batch
-$env:VCPKG_ROOT="C:\path\to\vcpkg"
-$env:PATH="$env:VCPKG_ROOT;$env:PATH"
+## Key Features
+
+- 🔄 **Self-updating launcher**
+  Designed to automatically fetch the newest release when run, ensuring users always stay up to date.
+  Can also be built directly from source for full control.
+  *(Currently disabled while under active development.)*  
+
+- ⚙️ **Modular C++20 engine**  
+  Built in a **functional, header-only style** with static linkage.  
+  Context-driven architecture with systems for rendering, windowing, input, scripting, tasks, and asset management.  
+
+- 🧪 **Live script reloading**  
+  Changes to `*.ascript.cpp` files are detected at runtime, recompiled with LLVM/Clang, and seamlessly reloaded.  
+
+- 🗂️ **Well-organised codebase**  
+  - Headers in `include/`  
+  - Implementation in `src/`  
+  - Helper scripts under `unix/` plus project-level `.sh` helpers  
+
+- 🖼️ **Sprite & atlas management**
+  Global registries, unique atlas indexing, and atlas-driven GUI (buttons, highlights, and menus) backed by the multi-context atlas pipeline that has been refined over thousands of development hours.
+- 🪟 **Built-in immediate GUI (`agui.hpp`)**
+  The new `agui` module exposes simple window, label, and button primitives that automatically provision a font atlas and upload it to Raylib and SDL backends so every context can draw the same HUD elements out of the box.
+
+- 🖥️ **Multi-context rendering**
+  Pluggable backends: OpenGL, Raylib, SFML, and a software renderer — switchable via thunks and lambdas.
+  **Multithreaded** with a state-of-the-art **hybrid coroutine + threaded design** for maximum scalability and efficiency.
+  Docked child windows now display backend labels so it's obvious which renderer owns each pane when SDL and Raylib run side by side.
+
+---
+
+## Status
+
+✅ **Actively Developed**
+AlmondShell is under **active development** as the software engine base of AlmondEngine.
+It continues to evolve as the **core foundation layer**, ensuring speed, modularity, and cross-platform compatibility with a **static, header-only functional design**.
+
+---
+
+## Repository Layout
+
+```
+.
+├── LICENSE                  # LicenseRef-MIT-NoSell terms for AlmondShell
+├── README.md                # Project overview and setup guide (this file)
+├── AlmondShell/
+│   ├── include/             # Core engine headers
+│   ├── src/                 # Engine, updater entry point, and scripts
+│   ├── docs/                # Supplementary documentation and setup notes
+│   ├── examples/            # Sample projects and templates
+│   └── CMakeLists.txt       # Build script for the updater target
+├── AlmondShell.sln          # Visual Studio solution for Windows developers
+└── images/                  # Non-code repository assets (logos, promo art, etc.)
+    ├── 567.jpg
+    └── almondshell.bmp
 ```
 
+Refer to `AlmondShell/docs/file_structure.txt` for a more exhaustive tour of the available modules.
 
+---
 
+## Engine Configuration (`include/aengineconfig.hpp`)
 
-#### With MSVC - Microsoft Visual C/C++ Studio 2022 Community
+AlmondShell centralises its build-time feature flags inside
+[`include/aengineconfig.hpp`](AlmondShell/include/aengineconfig.hpp). The file
+controls which entry points, contexts, and renderers are compiled into the
+runtime:
 
-Project.sln - Solution File in the Main Directory
+- **Entry point selection** – Define `ALMOND_MAIN_HANDLED` if you provide your
+  own `main` function. On Windows the engine automatically switches to
+  `WinMain` (`ALMOND_USING_WINMAIN`) unless you opt into headless mode via
+  `ALMOND_MAIN_HEADLESS`.
+- **Debug toggles** – Commented-out switches such as `DEBUG_INPUT`,
+  `DEBUG_TEXTURE_RENDERING_VERBOSE`, and related macros can be enabled when you
+  need additional logging during development.
+- **Window topology** – `ALMOND_SINGLE_PARENT` (enabled by default) tells the
+  runtime to create child windows beneath a single parent. Set it to `0` to
+  allow multiple top-level windows.
+- **Context backends** – Enable or disable integrations like `ALMOND_USING_SDL`,
+  `ALMOND_USING_SFML`, or `ALMOND_USING_RAYLIB` to embed those engines as
+  AlmondShell contexts.
+- **Rendering backends** – Choose one or more renderers. OpenGL is enabled out
+  of the box via `ALMOND_USING_OPENGL`; additional options include
+  `ALMOND_USING_SOFTWARE_RENDERER`, `ALMOND_USING_VULKAN`, and the placeholder
+  `ALMOND_USING_DIRECTX` flag.
+- **Raylib integration notes** – When `ALMOND_USING_RAYLIB` is enabled the
+  configuration defines `RAYLIB_NO_WINDOW` and remaps select symbols (e.g.
+  `CloseWindow`, `ShowCursor`, `LoadImageW`) before including `raylib.h` to avoid
+  Windows header conflicts.
 
+Review and adjust these switches before building to tailor the engine to your
+toolchain and desired runtime footprint.
 
+---
 
-#### With VSCode
-tasks.json
+## Prerequisites
 
-all builds seem to now be working, report anything if you find it. you can use gcc and clang from tasks or the cmake build in vscode and variants 
+To build AlmondShell from source you will need the following tools:
 
+| Requirement            | Notes |
+| ---------------------- | ----- |
+| A C++20 toolchain      | Visual Studio 2022, clang, or GCC 11+ are recommended. |
+| CMake ≥ 3.10           | Used to generate build files. |
+| Ninja _or_ MSBuild     | Pick the generator that matches your platform. |
+| Git                    | Required for cloning the repository and fetching dependencies. |
+| [vcpkg](https://vcpkg.io/) | Simplifies acquiring third-party libraries listed in `AlmondShell/vcpkg.json`. |
+| Optional: Vulkan SDK   | Needed when working on Vulkan backends listed in `include/avulkan*`. |
 
-### On Linux
+### vcpkg manifest dependencies
 
+AlmondShell ships with a [vcpkg manifest](AlmondShell/vcpkg.json) so that CMake can automatically fetch all required third-party
+packages when you configure the project in manifest mode (`VCPKG_FEATURE_FLAGS=manifests`). Visual Studio 2022 picks this up automatically when you open the `AlmondShell` folder, restoring the dependencies during the first configure step (ensure **Tools → Options → CMake → vcpkg** has *Use vcpkg manifest mode* enabled if you have previously customised the setting). The manifest currently pulls in:
 
+- [`asio`](https://think-async.com/) – Asynchronous networking primitives used by the updater and runtime services.
+- [`fmt`](https://fmt.dev/) – Type-safe, fast formatting for logging and diagnostics.
+- [`glad`](https://glad.dav1d.de/) – OpenGL function loader used by the OpenGL backend.
+- [`glm`](https://github.com/g-truc/glm) – Mathematics library for vector and matrix operations.
+- [`opengl`](https://www.khronos.org/opengl/) – OpenGL utility components supplied by vcpkg.
+- [`raylib`](https://www.raylib.com/) – Optional renderer and tooling integrations.
+- [`sfml`](https://www.sfml-dev.org/) – Additional windowing and multimedia support.
+- [`sdl3`](https://github.com/libsdl-org/SDL) and [`sdl3-image`](https://github.com/libsdl-org/SDL_image) – Cross-platform window,
+  input, and image loading.
+- [`zlib`](https://zlib.net/) – Compression support for packaged assets and downloads.
 
-
-#### With VSCode or VSCodium on Linux!
-Uses a CMake Build system, but you can also run tasks.json task, or build buttons at the bottom of the CMake Extension
-Or Build And Run From Command-Line Terminal below!
-
-
-
-
-#### Built-in Fully Autonomous Build Scripts - Install VulkanSDK, Dependencies, and Compile Directly from Commandline in Linux Terminal
-you will need to chmod -x the following to use:
+If you are using a classic (non-manifest) vcpkg workflow, install the same packages manually before configuring CMake, for example:
 
 ```bash
-./build.sh gcc Release
-./install.sh gcc Release
-./run.sh
+vcpkg install asio fmt glad glm opengl raylib sfml sdl3 sdl3-image zlib
 ```
 
-or:
+When CMake is configured with vcpkg integration enabled, the dependencies will be restored automatically on subsequent builds.
+
+---
+
+## Building from Source
+
+Clone the repository and configure the build with your preferred toolchain:
 
 ```bash
-./build.sh clang Debug
-./install.sh clang Debug
+git clone https://github.com/Autodidac/AlmondShell.git
+cd AlmondShell
 ```
 
-Notice Above: the difference in compiler in the Debug, and Release builds, clang vs gcc, which ever compiler you prefer to use.
+### Windows (MSVC)
+
+```powershell
+cmake -B build -S . -G "Visual Studio 17 2022"
+cmake --build build --config Release
+```
+
+### Linux & macOS (Clang/GCC + Ninja)
+
+```bash
+cmake -B build -S . -G Ninja
+cmake --build build
+```
+
+Both configurations produce the `updater` executable inside the `build` directory. Adjust `--config` or the generator settings to create Debug builds when needed.
+
+---
+
+## Running the Updater & Engine
+
+### Using a Release Binary
+1. Create an empty working directory.
+2. Download the appropriate `almondshell` binary from the [Releases](https://github.com/Autodidac/AlmondShell/releases) page.
+
+### Running From Source
+
+On launch the updater:
+1. Reads the remote configuration targets defined in `include/aupdateconfig.hpp` (for example the `include/config.hpp` manifest in the release repository).
+2. Downloads and applies updates when available.
+3. Starts the engine runtime, which in turn loads `src/scripts/editor_launcher.ascript.cpp` and watches for changes. Editing the script triggers automatic recompilation within the running session.
+
+Stop the session with `Ctrl+C` or by closing the console window.
+
+---
+
+## Development Tips
+
+- The hot-reload loop in `src/main.cpp` monitors script timestamps roughly every 200 ms. Keep editor builds incremental to benefit from the fast feedback.
+- Utility shell scripts (`build.sh`, `run.sh`, `unix/*.sh`) can streamline development on POSIX systems.
+- Check the `docs/` folder for platform-specific setup guides, tool recommendations, and dependency notes.
+
+---
+
+## Contributing
+
+"We Are Not Accepting PRs At This Time" as Almond is a source available commercial product
+
+For substantial changes, open an issue first to discuss direction.
+
+---
+
+## License
+
+The project uses the `LicenseRef-MIT-NoSell` license variant. See [`LICENSE`](LICENSE) for the full terms, including restrictions on commercial use and warranty disclaimers.
+
+

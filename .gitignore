@@ -37,24 +37,25 @@ x64/*
 out/
 build_clang/
 built/
+build/
 build_gcc/
 vcpkg_installed/
 bin/*
 .vs/
 backup/
-app1/x64/
-Application1/x64/
-StaticLib1/x64/
+app1/
+/updater/Cpp20_Ultimate_Project_Updater/
+Cpp20_Ultimate_Project_Updater.exe
+update.exe
 
-app1/Debug
-Application1/Debug
-StaticLib1/Debug
 
-app1/Release
-Application1/Release
-StaticLib1/Release
+*.ninja_log
+ninja.zip
 
 *.pdb
 *.idb
 *.log
 *.tlog
+AlmondShell/examples/ConsoleApplication1/atlas_dump/
+
+AlmondShell/examples/ConsoleApplication1/atlases/menubuttons_0_0.ppm
