@@ -2,12 +2,19 @@
 
 #include <sstream>
 #include <cstdlib>
-#include <cstdio>
 #include <memory>
 #include <array>
 #include <algorithm>
 #include <variant>
 #include <utility>
+
+#ifdef _WIN32
+#include <stdio.h>
+#define popen _popen
+#define pclose _pclose
+#else
+#include <stdio.h>
+#endif
 
 namespace {
 
@@ -109,6 +116,17 @@ JsonObject fallback_response(const std::string& prompt) {
     return payload;
 }
 
+std::string safe_getenv(const char* name) {
+    char* buf = nullptr;
+    size_t len = 0;
+    if (_dupenv_s(&buf, &len, name) == 0 && buf) {
+        std::string val(buf);
+        free(buf);
+        return val;
+    }
+    return {};
+}
+
 JsonObject call_gpt(Json params) {
     std::string prompt;
     Json constraints;
@@ -125,16 +143,18 @@ JsonObject call_gpt(Json params) {
         return fallback_response(prompt);
     }
 
-    const char* api_key = std::getenv("ALMONDAI_GPT_API_KEY");
-    if (api_key == nullptr || std::string(api_key).empty()) {
+    std::string api_key = safe_getenv("ALMONDAI_GPT_API_KEY");
+    if (api_key.empty()) {
         return fallback_response(prompt);
     }
-    const char* endpoint = std::getenv("ALMONDAI_GPT_ENDPOINT");
-    if (endpoint == nullptr || std::string(endpoint).empty()) {
+
+    std::string endpoint = safe_getenv("ALMONDAI_GPT_ENDPOINT");
+    if (endpoint.empty()) {
         endpoint = "https://api.openai.com/v1/chat/completions";
     }
-    const char* model = std::getenv("ALMONDAI_GPT_MODEL");
-    if (model == nullptr || std::string(model).empty()) {
+
+    std::string model = safe_getenv("ALMONDAI_GPT_MODEL");
+    if (model.empty()) {
         model = "gpt-4o-mini";
     }
 
