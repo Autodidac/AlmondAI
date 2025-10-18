@@ -1,6 +1,193 @@
 #include "../AlmondAI/include/almondai/mcp.hpp"
 
 #include <sstream>
+#include <cstdlib>
+#include <cstdio>
+#include <memory>
+#include <array>
+#include <algorithm>
+#include <variant>
+#include <utility>
+
+namespace {
+
+using almondai::Json;
+using almondai::JsonArray;
+using almondai::JsonObject;
+
+std::string escape_single_quotes(const std::string& input) {
+    std::string escaped;
+    escaped.reserve(input.size() + 8);
+    for (char c : input) {
+        if (c == '\'') {
+            escaped += "'\\''";
+        } else {
+            escaped.push_back(c);
+        }
+    }
+    return escaped;
+}
+
+std::string run_command(const std::string& command) {
+    std::array<char, 512> buffer{};
+    std::string output;
+    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(command.c_str(), "r"), pclose);
+    if (!pipe) {
+        return output;
+    }
+    while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe.get()) != nullptr) {
+        output.append(buffer.data());
+    }
+    return output;
+}
+
+bool is_null(const Json& value) {
+    return std::holds_alternative<std::nullptr_t>(value.value());
+}
+
+std::string extract_openai_text(const Json& response) {
+    if (!response.is_object()) {
+        return std::string{};
+    }
+    const auto& obj = response.as_object();
+    if (auto it = obj.find("choices"); it != obj.end() && it->second.is_array()) {
+        const auto& choices = it->second.as_array();
+        if (!choices.empty() && choices.front().is_object()) {
+            const auto& choice = choices.front().as_object();
+            if (auto msg_it = choice.find("message"); msg_it != choice.end() && msg_it->second.is_object()) {
+                const auto& message = msg_it->second.as_object();
+                if (auto content_it = message.find("content"); content_it != message.end()) {
+                    if (content_it->second.is_string()) {
+                        return content_it->second.as_string();
+                    }
+                    if (content_it->second.is_array()) {
+                        std::string text;
+                        for (const auto& part : content_it->second.as_array()) {
+                            if (part.is_object()) {
+                                const auto& part_obj = part.as_object();
+                                if (auto text_it = part_obj.find("text"); text_it != part_obj.end() && text_it->second.is_string()) {
+                                    text += text_it->second.as_string();
+                                }
+                            }
+                        }
+                        if (!text.empty()) {
+                            return text;
+                        }
+                    }
+                }
+            }
+            if (auto text_it = choice.find("text"); text_it != choice.end() && text_it->second.is_string()) {
+                return text_it->second.as_string();
+            }
+        }
+    }
+    if (auto it = obj.find("output_text"); it != obj.end() && it->second.is_array()) {
+        std::string combined;
+        for (const auto& item : it->second.as_array()) {
+            if (item.is_string()) {
+                combined += item.as_string();
+            }
+        }
+        if (!combined.empty()) {
+            return combined;
+        }
+    }
+    if (auto it = obj.find("content"); it != obj.end() && it->second.is_string()) {
+        return it->second.as_string();
+    }
+    return std::string{};
+}
+
+JsonObject fallback_response(const std::string& prompt) {
+    JsonObject provenance;
+    provenance["source"] = Json("gpt");
+    provenance["status"] = Json("placeholder");
+    JsonObject payload;
+    payload["output"] = Json("Teacher model unavailable. Please provide teacher_output manually.");
+    payload["provenance"] = Json(provenance);
+    payload["prompt"] = Json(prompt);
+    return payload;
+}
+
+JsonObject call_gpt(Json params) {
+    std::string prompt;
+    Json constraints;
+    if (params.is_object()) {
+        const auto& obj = params.as_object();
+        if (auto it = obj.find("prompt"); it != obj.end() && it->second.is_string()) {
+            prompt = it->second.as_string();
+        }
+        if (auto it = obj.find("constraints"); it != obj.end()) {
+            constraints = it->second;
+        }
+    }
+    if (prompt.empty()) {
+        return fallback_response(prompt);
+    }
+
+    const char* api_key = std::getenv("ALMONDAI_GPT_API_KEY");
+    if (api_key == nullptr || std::string(api_key).empty()) {
+        return fallback_response(prompt);
+    }
+    const char* endpoint = std::getenv("ALMONDAI_GPT_ENDPOINT");
+    if (endpoint == nullptr || std::string(endpoint).empty()) {
+        endpoint = "https://api.openai.com/v1/chat/completions";
+    }
+    const char* model = std::getenv("ALMONDAI_GPT_MODEL");
+    if (model == nullptr || std::string(model).empty()) {
+        model = "gpt-4o-mini";
+    }
+
+    std::string augmented_prompt = prompt;
+    if (!is_null(constraints)) {
+        augmented_prompt += "\n\nConstraints:\n" + constraints.dump();
+    }
+
+    JsonObject body;
+    body["model"] = Json(model);
+    body["temperature"] = Json(0.2);
+    JsonArray messages;
+    JsonObject system_msg;
+    system_msg["role"] = Json("system");
+    system_msg["content"] = Json("You are AlmondAI's teacher model. Provide thorough, safe answers suitable for fine-tuning.");
+    messages.emplace_back(Json(system_msg));
+    JsonObject user_msg;
+    user_msg["role"] = Json("user");
+    user_msg["content"] = Json(augmented_prompt);
+    messages.emplace_back(Json(user_msg));
+    body["messages"] = Json(messages);
+
+    std::string body_str = Json(body).dump();
+    std::ostringstream command;
+    command << "curl -s -X POST '" << endpoint << "'"
+            << " -H 'Content-Type: application/json'"
+            << " -H 'Authorization: Bearer " << api_key << "'"
+            << " -d '" << escape_single_quotes(body_str) << "'";
+
+    std::string raw_response = run_command(command.str());
+    if (raw_response.empty()) {
+        return fallback_response(prompt);
+    }
+
+    try {
+        Json parsed = Json::parse(raw_response);
+        std::string output = extract_openai_text(parsed);
+        if (output.empty()) {
+            return fallback_response(prompt);
+        }
+        JsonObject provenance;
+        provenance["source"] = Json("gpt");
+        provenance["model"] = Json(model);
+        JsonObject payload;
+        payload["output"] = Json(output);
+        payload["provenance"] = Json(provenance);
+        return payload;
+    } catch (...) {
+        return fallback_response(prompt);
+    }
+}
+
+} // namespace
 
 namespace almondai {
 
@@ -56,10 +243,7 @@ Json MCPBridge::call(const std::string& method, Json params) {
     response["method"] = Json(method);
     response["params"] = params;
     if (method == "gpt.generate") {
-        JsonObject payload;
-        payload["output"] = Json("teacher-response-placeholder");
-        payload["provenance"] = JsonObject{{"source", Json("gpt")}};
-        response["result"] = Json(payload);
+        response["result"] = Json(call_gpt(std::move(params)));
     }
     return Json(response);
 }

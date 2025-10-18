@@ -78,6 +78,19 @@ Subsequent runs reload the vocabulary, configure a `StudentModel`, register a
 `default` adapter, and expose the inference loop via `Service::run` over standard
 I/O.
 
+### Teacher Integration and Seeding
+
+`data/training_seed.jsonl` ships with three example prompts so the learner has
+initial vocabulary coverage and retrieval documents. When `almondai_app` starts it
+loads those seeds, copies them into `data/training_data.jsonl`, and reloads any
+previously saved weights from `data/student_weights.json`.
+
+If you omit `teacher_output` from `train.step` or `ingest.step` requests the
+runtime calls an external GPT endpoint using the credentials described in
+[`docs/GPT_SETUP.md`](docs/GPT_SETUP.md). Successful training steps append the
+curated example to `data/training_data.jsonl` and persist the updated weights so
+subsequent runs resume from the latest state.
+
 ## Contributing
 
 "We Are Not Accepting PRs At This Time" as AlmondAI is a source-available

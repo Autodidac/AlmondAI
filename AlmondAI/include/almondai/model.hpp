@@ -30,6 +30,10 @@ public:
 
     const std::vector<Tensor>& weights() const noexcept { return m_weights; }
 
+    bool save_weights(const std::string& path) const;
+    bool load_weights(const std::string& path);
+    void resize_vocab(std::size_t new_vocab_size);
+
     void attach_adapter(const Adapter* adapter);
     const Adapter* active_adapter() const noexcept { return m_active_adapter; }
 

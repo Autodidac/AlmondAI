@@ -91,6 +91,11 @@ std::vector<PreferencePair> DataCurator::preferences() const {
     return m_preferences;
 }
 
+void DataCurator::mark_seen(const std::string& prompt_hash) {
+    std::scoped_lock lock(m_mutex);
+    m_seen_prompts.insert(prompt_hash);
+}
+
 bool DataCurator::contains_secret(const std::string& text) {
     return text.find("BEGIN PRIVATE KEY") != std::string::npos ||
            text.find("PASSWORD=") != std::string::npos;
