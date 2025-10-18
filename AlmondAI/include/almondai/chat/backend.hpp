@@ -21,7 +21,17 @@ struct Backend {
 
 using BackendPtr = std::unique_ptr<Backend>;
 
-enum class Kind { Rasa, Botpress, DeepPavlov, H2O, OpenAICompat };
+enum class Kind {
+    Rasa,
+    Botpress,
+    DeepPavlov,
+    H2O,
+    OpenAICompat,
+    HuggingFace,
+    OpenRouter,
+    TogetherAI,
+    DeepInfra
+};
 
 BackendPtr make_backend(Kind kind, std::string a, std::string b = std::string(), std::string c = std::string());
 

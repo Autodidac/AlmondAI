@@ -82,7 +82,6 @@ int main() {
 
     almondai::chat::BackendPtr chat_backend;
     std::optional<almondai::chat::Kind> chat_kind;
-    std::vector<almondai::chat::Message> conversation;
 
     auto getenv_string = [](const char* name) -> std::string {
 #if defined(_WIN32)
@@ -109,6 +108,7 @@ int main() {
             almondai::chat::Kind parsed = almondai::chat::parse_kind(env_kind);
             chat_backend = almondai::chat::make_backend(parsed, env_endpoint, env_model, env_key);
             chat_kind = parsed;
+            service.set_chat_backend(chat_backend.get(), almondai::chat::kind_to_string(parsed));
             std::cout << "Connected to " << almondai::chat::kind_to_string(parsed)
                       << " chat backend from environment configuration.\n";
         }
@@ -408,7 +408,7 @@ int main() {
                 "  retrieve <query>       Query the retrieval index.\n"
                 "  train <file> [epochs] [batch]  Run iterative training over <file>.\n"
                 "  hot-swap [name]        Promote adapter <name> or rollback if omitted.\n"
-                "  chat use <kind> <endpoint> [arg2] [arg3]  Switch to an external chat backend.\n"
+                "  chat use <kind> <endpoint> [model] [key]  Switch to an external chat backend.\n"
                 "  chat clear             Return to local model responses.\n"
                 "  exit                   Quit the console.\n";
             continue;
@@ -425,7 +425,7 @@ int main() {
                         args.push_back(token);
                     }
                     if (args.size() < 2) {
-                        std::cout << "Usage: chat use <kind> <endpoint> [arg2] [arg3]\n";
+                        std::cout << "Usage: chat use <kind> <endpoint> [model] [key]\n";
                         continue;
                     }
                     try {
@@ -435,7 +435,7 @@ int main() {
                         std::string c = args.size() >= 4 ? args[3] : std::string();
                         chat_backend = almondai::chat::make_backend(kind, std::move(a), std::move(b), std::move(c));
                         chat_kind = kind;
-                        conversation.clear();
+                        service.set_chat_backend(chat_backend.get(), almondai::chat::kind_to_string(kind));
                         std::cout << "Using " << almondai::chat::kind_to_string(kind)
                                   << " chat backend.\n";
                     }
@@ -453,10 +453,10 @@ int main() {
                     }
                     chat_backend.reset();
                     chat_kind.reset();
-                    conversation.clear();
+                    service.set_chat_backend(nullptr);
                     continue;
                 }
-                std::cout << "Usage: chat use <kind> <endpoint> [arg2] [arg3] or chat clear\n";
+                std::cout << "Usage: chat use <kind> <endpoint> [model] [key] or chat clear\n";
                 continue;
             }
 
@@ -468,38 +468,6 @@ int main() {
 
                 JsonObject params;
                 params["prompt"] = Json(prompt);
-
-                bool used_remote = false;
-                if (chat_backend) {
-                    almondai::chat::Message user_message{"user", prompt};
-                    conversation.push_back(user_message);
-                    try {
-                        std::string reply = chat_backend->complete(conversation);
-                        if (!reply.empty()) {
-                            conversation.push_back({"assistant", reply});
-                            while (conversation.size() > 40) {
-                                if (conversation.size() >= 2) {
-                                    conversation.erase(conversation.begin(), conversation.begin() + 2);
-                                } else {
-                                    conversation.erase(conversation.begin());
-                                }
-                            }
-                            std::cout << reply << "\n";
-                            used_remote = true;
-                        }
-                        else {
-                            std::cout << "Chat backend returned an empty response; falling back to local model.\n";
-                        }
-                    }
-                    catch (const std::exception& ex) {
-                        std::cout << "Chat backend error: " << ex.what() << "\n";
-                    }
-                }
-
-                if (used_remote) {
-                    continue;
-                }
-
                 auto result = invoke_service("model.generate", Json(params));
                 if (!result) {
                     result = invoke_service("generate", Json(params));
@@ -508,22 +476,33 @@ int main() {
                     const auto& obj = result->as_object();
                     if (auto it = obj.find("output"); it != obj.end() && it->second.is_string()) {
                         std::cout << it->second.as_string() << "\n";
-                        if (chat_backend) {
-                            conversation.push_back({"assistant", it->second.as_string()});
-                            while (conversation.size() > 40) {
-                                if (conversation.size() >= 2) {
-                                    conversation.erase(conversation.begin(), conversation.begin() + 2);
-                                } else {
-                                    conversation.erase(conversation.begin());
-                                }
-                            }
-                        }
                     }
                     else if (auto t = obj.find("text"); t != obj.end() && t->second.is_string()) {
                         std::cout << t->second.as_string() << "\n";
                     }
                     else {
                         std::cout << "No output returned.\n";
+                    }
+                    if (auto route_it = obj.find("route"); route_it != obj.end() && route_it->second.is_string()) {
+                        const std::string route = route_it->second.as_string();
+                        if (!route.empty()) {
+                            std::cout << "[route: " << route;
+                            if (route != "local") {
+                                if (auto backend_it = obj.find("backend"); backend_it != obj.end() && backend_it->second.is_string()) {
+                                    std::cout << ", backend: " << backend_it->second.as_string();
+                                }
+                            }
+                            std::cout << "]\n";
+                        }
+                    }
+                    if (auto err_it = obj.find("remote_error"); err_it != obj.end() && err_it->second.is_string()) {
+                        std::cout << "(remote error: " << err_it->second.as_string() << ")\n";
+                    }
+                    if (auto fallback_it = obj.find("fallback"); fallback_it != obj.end() && fallback_it->second.is_object()) {
+                        const auto& fb = fallback_it->second.as_object();
+                        if (auto fb_msg = fb.find("output"); fb_msg != fb.end() && fb_msg->second.is_string()) {
+                            std::cout << "[fallback notice: " << fb_msg->second.as_string() << "]\n";
+                        }
                     }
                 }
                 else {
