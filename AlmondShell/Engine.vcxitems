@@ -214,7 +214,6 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\governor.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\ingest.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\json.cpp" />
-    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\main.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\mcp.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\model.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\retrieval.cpp" />

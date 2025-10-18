@@ -572,9 +572,6 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\json.cpp">
       <Filter>Source Files\AlmondAI</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\main.cpp">
-      <Filter>Source Files\AlmondAI</Filter>
-    </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\mcp.cpp">
       <Filter>Source Files\AlmondAI</Filter>
     </ClCompile>

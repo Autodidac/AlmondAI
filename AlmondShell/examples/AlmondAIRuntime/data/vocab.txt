@@ -1,0 +1,4 @@
+<pad>
+<bos>
+<eos>
+<unk>
