@@ -1,4 +1,4 @@
-#include "almondai/tokenizer_word.hpp"
+#include "../include/almondai/tokenizer_word.hpp"
 
 #include <locale>
 #include <algorithm>

@@ -85,9 +85,20 @@ int main() {
     std::vector<almondai::chat::Message> conversation;
 
     auto getenv_string = [](const char* name) -> std::string {
+#if defined(_WIN32)
+        char* buf = nullptr;
+        size_t len = 0;
+        if (_dupenv_s(&buf, &len, name) == 0 && buf) {
+            std::string value(buf);
+            free(buf);
+            return value;
+        }
+        return {};
+#else
         const char* value = std::getenv(name);
         return value ? std::string(value) : std::string();
-    };
+#endif
+        };
 
     const std::string env_kind = getenv_string("ALMONDAI_CHAT_KIND");
     if (!env_kind.empty()) {

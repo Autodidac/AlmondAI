@@ -1,4 +1,6 @@
-#include "almondai/chat/backend.hpp"
+
+#include "../../include/almondai/chat/backend.hpp"
+
 
 #include <algorithm>
 #include <cctype>

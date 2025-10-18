@@ -1,4 +1,4 @@
-#include "almondai/tensor.hpp"
+#include "../include/almondai/tensor.hpp"
 
 #include <random>
 #include <chrono>

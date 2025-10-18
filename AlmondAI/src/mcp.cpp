@@ -1,5 +1,5 @@
-#include "almondai/mcp.hpp"
-#include "almondai/fallback.hpp"
+#include "../include/almondai/mcp.hpp"
+#include "../include/almondai/fallback.hpp"
 
 #include <sstream>
 #include <cstdlib>
@@ -106,9 +106,20 @@ std::string extract_openai_text(const Json& response) {
     return std::string{};
 }
 
-std::string safe_getenv(const char* name) {
+inline std::string safe_getenv(const char* name) {
+#if defined(_WIN32)
+    char* buf = nullptr;
+    size_t len = 0;
+    if (_dupenv_s(&buf, &len, name) == 0 && buf) {
+        std::string value(buf);
+        free(buf);
+        return value;
+    }
+    return {};
+#else
     const char* value = std::getenv(name);
     return value ? std::string(value) : std::string();
+#endif
 }
 
 JsonObject call_gpt(Json params) {

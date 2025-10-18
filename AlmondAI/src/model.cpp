@@ -1,6 +1,6 @@
-#include "almondai/model.hpp"
-#include "almondai/adapter.hpp"
-#include "almondai/json.hpp"
+#include "../include/almondai/model.hpp"
+#include "../include/almondai/adapter.hpp"
+#include "../include/almondai/json.hpp"
 
 #include <random>
 #include <chrono>

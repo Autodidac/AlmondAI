@@ -1,4 +1,4 @@
-#include "almondai/json.hpp"
+#include "../include/almondai/json.hpp"
 
 #include <stdexcept>
 #include <iomanip>
