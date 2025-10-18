@@ -41,6 +41,8 @@ public:
 
     std::vector<PreferencePair> preferences() const;
 
+    void mark_seen(const std::string& prompt_hash);
+
 private:
     mutable std::mutex m_mutex;
     std::unordered_set<std::string> m_seen_prompts;

@@ -10,6 +10,7 @@
 
 #include <optional>
 #include <fstream>
+#include <filesystem>
 
 namespace almondai {
 
@@ -59,6 +60,10 @@ private:
     std::size_t m_step = 0;
 
     void log_stats(const TrainingStats& stats);
+    void load_persistent_data();
+    void load_samples_from_file(const std::filesystem::path& path);
+    void persist_sample(const CuratedSample& sample);
+    std::string derive_document_id(const CuratedSample& sample, std::size_t index) const;
 };
 
 } // namespace almondai

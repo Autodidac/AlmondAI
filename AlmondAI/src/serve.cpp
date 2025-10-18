@@ -2,8 +2,75 @@
 
 #include <algorithm>
 #include <stdexcept>
+#include <functional>
+#include <sstream>
+#include <variant>
 
 namespace almondai {
+
+namespace {
+
+std::string compute_prompt_hash(const std::string& prompt) {
+    std::hash<std::string> hasher;
+    std::ostringstream oss;
+    oss << std::hex << hasher(prompt);
+    return oss.str();
+}
+
+bool is_null(const Json& value) {
+    return std::holds_alternative<std::nullptr_t>(value.value());
+}
+
+std::string extract_string(const JsonObject& obj, const std::string& key) {
+    auto it = obj.find(key);
+    if (it != obj.end() && it->second.is_string()) {
+        return it->second.as_string();
+    }
+    return std::string{};
+}
+
+std::string fetch_teacher_output(MCPBridge& bridge,
+                                 const std::string& prompt,
+                                 const Json& constraints) {
+    if (prompt.empty()) {
+        return std::string{};
+    }
+    JsonObject params;
+    params["prompt"] = Json(prompt);
+    if (!is_null(constraints)) {
+        params["constraints"] = constraints;
+    }
+    Json response = bridge.call("gpt.generate", Json(params));
+    if (response.is_object()) {
+        const auto& obj = response.as_object();
+        auto result_it = obj.find("result");
+        if (result_it != obj.end() && result_it->second.is_object()) {
+            const auto& result = result_it->second.as_object();
+            if (auto out_it = result.find("output"); out_it != result.end() && out_it->second.is_string()) {
+                return out_it->second.as_string();
+            }
+        }
+    }
+    return std::string{};
+}
+
+Json ensure_constraints(const JsonObject& params) {
+    auto it = params.find("constraints");
+    if (it != params.end()) {
+        return it->second;
+    }
+    return Json();
+}
+
+std::string ensure_prompt_hash(const JsonObject& params, const std::string& prompt) {
+    auto it = params.find("prompt_hash");
+    if (it != params.end() && it->second.is_string() && !it->second.as_string().empty()) {
+        return it->second.as_string();
+    }
+    return compute_prompt_hash(prompt);
+}
+
+} // namespace
 
 Service::Service(ContinuousLearner& learner, MCPBridge bridge)
     : m_learner(&learner), m_bridge(std::move(bridge)) {}
@@ -22,10 +89,7 @@ void Service::run(std::istream& in, std::ostream& out) {
 Json Service::handle_request(const MCPBridge::Request& request) {
     if (request.method == "model.generate") {
         const auto& params = request.params.as_object();
-        const auto prompt_it = params.find("prompt");
-        const std::string prompt = prompt_it != params.end() && prompt_it->second.is_string()
-                                       ? prompt_it->second.as_string()
-                                       : std::string{};
+        const std::string prompt = extract_string(params, "prompt");
         auto retrieval = m_learner->retrieval().query(prompt);
         std::string augmented = prompt;
         for (const auto& item : retrieval) {
@@ -91,31 +155,49 @@ Json Service::handle_request(const MCPBridge::Request& request) {
     }
     if (request.method == "ingest.step") {
         const auto& params = request.params.as_object();
-        const std::string prompt = params.at("prompt").as_string();
-        const std::string teacher_output = params.at("teacher_output").as_string();
-        const std::string hash = params.at("prompt_hash").as_string();
-        Json constraints = params.count("constraints") ? params.at("constraints") : Json();
+        const std::string prompt = extract_string(params, "prompt");
+        std::string teacher_output = extract_string(params, "teacher_output");
+        Json constraints = ensure_constraints(params);
+        if (teacher_output.empty()) {
+            teacher_output = fetch_teacher_output(m_bridge, prompt, constraints);
+        }
+        const std::string hash = ensure_prompt_hash(params, prompt);
+        if (teacher_output.empty()) {
+            JsonObject response;
+            response["accepted"] = Json(false);
+            response["teacher_output"] = Json(teacher_output);
+            return Json(response);
+        }
         auto curated = m_learner->ingest(prompt, teacher_output, constraints, hash);
         JsonObject response;
         response["accepted"] = Json(curated.has_value());
+        response["teacher_output"] = Json(teacher_output);
         return Json(response);
     }
     if (request.method == "train.step") {
         const auto& params = request.params.as_object();
-        const std::string prompt = params.at("prompt").as_string();
-        const std::string teacher_output = params.at("teacher_output").as_string();
-        const std::string hash = params.at("prompt_hash").as_string();
-        Json constraints = params.count("constraints") ? params.at("constraints") : Json();
+        const std::string prompt = extract_string(params, "prompt");
+        std::string teacher_output = extract_string(params, "teacher_output");
+        Json constraints = ensure_constraints(params);
+        if (teacher_output.empty()) {
+            teacher_output = fetch_teacher_output(m_bridge, prompt, constraints);
+        }
+        const std::string hash = ensure_prompt_hash(params, prompt);
+        if (teacher_output.empty()) {
+            return Json(JsonObject{{"status", Json("teacher_unavailable")}});
+        }
         auto curated = m_learner->ingest(prompt, teacher_output, constraints, hash);
         if (!curated) {
             return Json(JsonObject{{"status", Json("skipped")}});
         }
         TrainingStats stats = m_learner->train_step(*curated);
         JsonObject response;
+        response["status"] = Json("trained");
         response["loss"] = Json(stats.loss);
         response["accuracy"] = Json(stats.accuracy);
         response["adapter_norm"] = Json(stats.adapter_norm);
         response["retrieval_hit_rate"] = Json(stats.retrieval_hit_rate);
+        response["teacher_output"] = Json(teacher_output);
         return Json(response);
     }
     if (request.method == "eval.canary") {
