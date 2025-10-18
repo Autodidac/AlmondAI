@@ -5,6 +5,7 @@
 #include <functional>
 #include <sstream>
 #include <variant>
+#include <type_traits>
 
 namespace almondai {
 
@@ -78,8 +79,12 @@ Service::Service(ContinuousLearner& learner, MCPBridge bridge)
 void Service::run(std::istream& in, std::ostream& out) {
     while (auto request = m_bridge.read_request(in)) {
         try {
-            Json result = handle_request(*request);
-            m_bridge.send_response(out, request->id, result);
+            if (request->method == "trainer.fit") {
+                handle_trainer_fit(*request, out);
+            } else {
+                Json result = handle_request(*request);
+                m_bridge.send_response(out, request->id, result);
+            }
         } catch (const std::exception& ex) {
             m_bridge.send_error(out, request->id, ex.what());
         }
@@ -210,6 +215,81 @@ Json Service::handle_request(const MCPBridge::Request& request) {
         return Json(response);
     }
     throw std::runtime_error("unknown method: " + request.method);
+}
+
+void Service::handle_trainer_fit(const MCPBridge::Request& request, std::ostream& out) {
+    if (!m_learner) {
+        throw std::runtime_error("learner unavailable");
+    }
+
+    std::string file;
+    int epochs = 1;
+    int batch = 32;
+
+    auto parse_int = [](const Json& value, int fallback) {
+        return std::visit([
+                               fallback
+                           ](const auto& raw) -> int {
+            using T = std::decay_t<decltype(raw)>;
+            if constexpr (std::is_same_v<T, double>) {
+                return static_cast<int>(raw);
+            } else if constexpr (std::is_same_v<T, bool>) {
+                return raw ? 1 : 0;
+            } else if constexpr (std::is_same_v<T, std::string>) {
+                try {
+                    std::size_t idx = 0;
+                    int parsed = std::stoi(raw, &idx);
+                    if (idx == raw.size()) {
+                        return parsed;
+                    }
+                } catch (...) {
+                }
+                return fallback;
+            } else {
+                return fallback;
+            }
+        }, value.value());
+    };
+
+    if (request.params.is_object()) {
+        const auto& params = request.params.as_object();
+        if (auto it = params.find("file"); it != params.end() && it->second.is_string()) {
+            file = it->second.as_string();
+        }
+        if (auto it = params.find("epochs"); it != params.end()) {
+            epochs = std::max(1, parse_int(it->second, epochs));
+        }
+        if (auto it = params.find("batch"); it != params.end()) {
+            batch = std::max(1, parse_int(it->second, batch));
+        }
+    }
+
+    double final_loss = 0.0;
+    int final_step = 0;
+
+    m_learner->fit(file, epochs, batch, [&](int step, double loss, double lr, double tokens_per_s) {
+        JsonObject event;
+        event["event"] = Json("batch");
+        event["step"] = Json(step);
+        event["loss"] = Json(loss);
+        event["lr"] = Json(lr);
+        event["tokens_per_s"] = Json(tokens_per_s);
+        out << Json(event).dump() << '\n';
+        out.flush();
+        final_loss = loss;
+        final_step = step;
+    });
+
+    JsonObject result;
+    result["final_loss"] = Json(final_loss);
+    result["steps"] = Json(final_step);
+
+    JsonObject response;
+    response["id"] = Json(request.id);
+    response["result"] = Json(result);
+
+    out << Json(response).dump() << '\n';
+    out.flush();
 }
 
 } // namespace almondai

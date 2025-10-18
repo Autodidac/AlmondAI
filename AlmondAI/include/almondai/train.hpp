@@ -11,6 +11,7 @@
 #include <optional>
 #include <fstream>
 #include <filesystem>
+#include <functional>
 
 namespace almondai {
 
@@ -36,6 +37,11 @@ public:
 
     TrainingStats train_step(const CuratedSample& sample);
     TrainingStats evaluate_canary();
+
+    void fit(const std::string& path,
+             int epochs,
+             int batch,
+             std::function<void(int, double, double, double)> on_batch);
 
     void promote_adapter(const std::string& name);
     void rollback_adapter();

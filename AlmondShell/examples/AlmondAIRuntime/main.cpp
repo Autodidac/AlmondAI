@@ -30,13 +30,16 @@
 #include <cctype>
 #include <charconv>
 #include <filesystem>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <variant>
+#include <vector>
 
 int main() {
     using namespace almondai;
@@ -143,6 +146,166 @@ int main() {
         return last_result;
         };
 
+    auto invoke_service_streaming = [&service](const std::string& method, Json params) -> bool {
+        JsonObject request;
+        request["id"] = Json("cli");
+        request["method"] = Json(method);
+        request["params"] = std::move(params);
+
+        std::istringstream input(Json(request).dump() + "\n");
+        std::ostringstream output;
+        service.run(input, output);
+
+        const std::string buffer = output.str();
+        if (buffer.empty()) {
+            return false;
+        }
+
+        auto parse_int = [](const Json& value, int fallback) -> int {
+            return std::visit([
+                                   fallback
+                               ](const auto& raw) -> int {
+                using T = std::decay_t<decltype(raw)>;
+                if constexpr (std::is_same_v<T, double>) {
+                    return static_cast<int>(raw);
+                }
+                else if constexpr (std::is_same_v<T, bool>) {
+                    return raw ? 1 : 0;
+                }
+                else if constexpr (std::is_same_v<T, std::string>) {
+                    try {
+                        std::size_t idx = 0;
+                        int parsed = std::stoi(raw, &idx);
+                        if (idx == raw.size()) {
+                            return parsed;
+                        }
+                    }
+                    catch (...) {
+                    }
+                    return fallback;
+                }
+                else {
+                    return fallback;
+                }
+            }, value.value());
+        };
+
+        auto parse_double = [](const Json& value, double fallback) -> double {
+            return std::visit([
+                                   fallback
+                               ](const auto& raw) -> double {
+                using T = std::decay_t<decltype(raw)>;
+                if constexpr (std::is_same_v<T, double>) {
+                    return raw;
+                }
+                else if constexpr (std::is_same_v<T, bool>) {
+                    return raw ? 1.0 : 0.0;
+                }
+                else if constexpr (std::is_same_v<T, std::string>) {
+                    try {
+                        std::size_t idx = 0;
+                        double parsed = std::stod(raw, &idx);
+                        if (idx == raw.size()) {
+                            return parsed;
+                        }
+                    }
+                    catch (...) {
+                    }
+                    return fallback;
+                }
+                else {
+                    return fallback;
+                }
+            }, value.value());
+        };
+
+        std::istringstream lines(buffer);
+        std::string raw;
+        std::size_t last_width = 0;
+        bool saw_batch = false;
+        bool saw_result = false;
+        double final_loss = 0.0;
+        int final_step = 0;
+
+        while (std::getline(lines, raw)) {
+            if (!raw.empty() && raw.back() == '\r') raw.pop_back();
+            if (raw.empty()) {
+                continue;
+            }
+            Json parsed;
+            try {
+                parsed = Json::parse(raw);
+            }
+            catch (...) {
+                continue;
+            }
+            if (!parsed.is_object()) {
+                continue;
+            }
+            const auto& obj = parsed.as_object();
+            if (auto err_it = obj.find("error"); err_it != obj.end()) {
+                if (err_it->second.is_object()) {
+                    const auto& err_obj = err_it->second.as_object();
+                    if (auto msg_it = err_obj.find("message"); msg_it != err_obj.end() && msg_it->second.is_string()) {
+                        throw std::runtime_error(msg_it->second.as_string());
+                    }
+                }
+                throw std::runtime_error("service returned an error");
+            }
+            if (auto event_it = obj.find("event"); event_it != obj.end() && event_it->second.is_string()) {
+                if (event_it->second.as_string() == "batch") {
+                    int step_value = 0;
+                    double loss_value = 0.0;
+                    if (auto step_it = obj.find("step"); step_it != obj.end()) {
+                        step_value = parse_int(step_it->second, step_value);
+                    }
+                    if (auto loss_it = obj.find("loss"); loss_it != obj.end()) {
+                        loss_value = parse_double(loss_it->second, loss_value);
+                    }
+                    final_step = step_value;
+                    final_loss = loss_value;
+                    std::ostringstream progress;
+                    progress << "[train] step " << step_value
+                             << " loss " << std::fixed << std::setprecision(4) << loss_value;
+                    const std::string text = progress.str();
+                    std::cout << '\r' << text;
+                    if (last_width > text.size()) {
+                        std::cout << std::string(last_width - text.size(), ' ');
+                    }
+                    std::cout << std::flush;
+                    last_width = text.size();
+                    saw_batch = true;
+                    continue;
+                }
+            }
+            if (auto result_it = obj.find("result"); result_it != obj.end() && result_it->second.is_object()) {
+                const auto& result = result_it->second.as_object();
+                if (auto loss_it = result.find("final_loss"); loss_it != result.end()) {
+                    final_loss = parse_double(loss_it->second, final_loss);
+                }
+                if (auto steps_it = result.find("steps"); steps_it != result.end()) {
+                    final_step = parse_int(steps_it->second, final_step);
+                }
+                saw_result = true;
+            }
+        }
+
+        if (saw_result) {
+            if (saw_batch) {
+                std::cout << '\r' << std::string(last_width, ' ') << '\r';
+            }
+            std::ostringstream summary;
+            summary << "Training complete (loss=" << std::fixed << std::setprecision(4) << final_loss
+                    << ", steps=" << final_step << ")\n";
+            std::cout << summary.str();
+        }
+        else if (saw_batch) {
+            std::cout << '\r' << std::string(last_width, ' ') << '\r' << std::flush;
+        }
+
+        return saw_result || saw_batch;
+    };
+
     std::string line;
     while (std::cout << "AlmondAI> " && std::getline(std::cin, line)) {
         trim(line);
@@ -159,6 +322,7 @@ int main() {
                 "Available commands:\n"
                 "  generate <prompt>      Generate a completion for the prompt.\n"
                 "  retrieve <query>       Query the retrieval index.\n"
+                "  train <file> [epochs] [batch]  Run iterative training over <file>.\n"
                 "  hot-swap [name]        Promote adapter <name> or rollback if omitted.\n"
                 "  exit                   Quit the console.\n";
             continue;
@@ -247,6 +411,68 @@ int main() {
                     }
                 }
                 else {
+                    std::cout << "(no response)\n";
+                }
+                continue;
+            }
+
+            if (command == "train") {
+                std::vector<std::string> args;
+                std::string token;
+                while (iss >> token) {
+                    args.push_back(token);
+                }
+                if (args.empty()) {
+                    std::cout << "Usage: train <file> [epochs=1] [batch=32]\n";
+                    continue;
+                }
+                if (args.size() > 3) {
+                    std::cout << "Too many arguments for train command.\n";
+                    continue;
+                }
+
+                std::string file = args.front();
+                int epochs = 1;
+                int batch = 32;
+
+                auto parse_positive = [](const std::string& value, const char* label) -> std::optional<int> {
+                    try {
+                        int parsed = std::stoi(value);
+                        if (parsed <= 0) {
+                            std::cout << label << " must be positive.\n";
+                            return std::nullopt;
+                        }
+                        return parsed;
+                    }
+                    catch (...) {
+                        std::cout << "Invalid " << label << " value.\n";
+                        return std::nullopt;
+                    }
+                };
+
+                if (args.size() >= 2) {
+                    if (auto parsed = parse_positive(args[1], "epochs")) {
+                        epochs = *parsed;
+                    }
+                    else {
+                        continue;
+                    }
+                }
+                if (args.size() == 3) {
+                    if (auto parsed = parse_positive(args[2], "batch")) {
+                        batch = *parsed;
+                    }
+                    else {
+                        continue;
+                    }
+                }
+
+                JsonObject params;
+                params["file"] = Json(file);
+                params["epochs"] = Json(epochs);
+                params["batch"] = Json(batch);
+
+                if (!invoke_service_streaming("trainer.fit", Json(params))) {
                     std::cout << "(no response)\n";
                 }
                 continue;

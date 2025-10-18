@@ -110,6 +110,41 @@ TrainingStats ContinuousLearner::evaluate_canary() {
     return stats;
 }
 
+void ContinuousLearner::fit(const std::string& path,
+                            int epochs,
+                            int batch,
+                            std::function<void(int, double, double, double)> on_batch) {
+    (void)path; // Stub implementation does not yet read from disk.
+
+    if (!on_batch) {
+        return;
+    }
+
+    const int safe_epochs = std::max(1, epochs);
+    const int safe_batch = std::max(1, batch);
+    const int dataset_size = static_cast<int>(m_training_data.size());
+    const int steps_per_epoch = dataset_size > 0
+        ? std::max(1, (dataset_size + safe_batch - 1) / safe_batch)
+        : 5;
+
+    const int total_steps = safe_epochs * steps_per_epoch;
+    double simulated_loss = 2.0;
+    const double base_lr = 5e-4;
+    double tokens_per_second = 12000.0;
+
+    for (int epoch = 0; epoch < safe_epochs; ++epoch) {
+        for (int step_idx = 0; step_idx < steps_per_epoch; ++step_idx) {
+            const int global_step = epoch * steps_per_epoch + step_idx + 1;
+            simulated_loss = std::max(0.01, simulated_loss * 0.97);
+            const double progress = static_cast<double>(global_step) / static_cast<double>(total_steps);
+            const double current_lr = base_lr * (0.5 + 0.5 * (1.0 - progress));
+            tokens_per_second = 10000.0 + 250.0 * static_cast<double>(global_step);
+
+            on_batch(global_step, simulated_loss, current_lr, tokens_per_second);
+        }
+    }
+}
+
 void ContinuousLearner::promote_adapter(const std::string& name) {
     m_adapters.activate(name);
     if (const Adapter* adapter = m_adapters.active_adapter()) {
