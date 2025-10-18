@@ -1,0 +1,3 @@
+AlmondAI training log
+Each entry below records a single training or evaluation step in a human-readable format.
+

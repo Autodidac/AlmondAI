@@ -1,0 +1,67 @@
+AlmondAI Language Model Overview
+================================
+
+This document summarizes the miniature language-model stack implemented in the
+`AlmondAI/src` and `AlmondAI/include/almondai` directories.  It is meant to sit
+next to the C++ sources so you can understand the moving pieces without opening
+the code or relying on spreadsheet tooling.
+
+High-level architecture
+-----------------------
+* **BaseDecoder** (`model.cpp` / `model.hpp`)
+  * Implements an extremely small feed-forward decoder network with embeddings,
+    a configurable number of hidden layers, and a projection layer back to the
+    vocabulary.  The constructor initialises weights with a normal
+    distribution.
+  * Provides `forward` for inference, `apply_gradients` to update the projection
+    layer, and `attach_adapter` so that optional low-rank adapters can modify
+    the hidden representation.
+* **StudentModel** wraps a `BaseDecoder` and exposes `forward`/`update` so the
+  trainer does not need to manipulate the decoder directly.
+* **Adapters** (`adapter.cpp` / `adapter.hpp`) introduce LoRA-style adaptation.
+  `AdapterManager` handles registration, activation, gradient updates, and
+  statistics for whichever adapter is currently active.
+* **Tokenizer** (`tokenizer_word.cpp`) provides a simple whitespace tokenizer,
+  vocabulary persistence (`data/vocab.txt`), and encode/decode helpers used by
+  the training loop.
+* **RetrievalIndex** (`retrieval.cpp`) caches curated examples keyed by
+  prompt hashes so the model can reuse relevant responses.  Hit-rate metrics are
+  logged alongside loss.
+* **Evaluator** (`eval.cpp`) runs lightweight evaluation over a held-out sample
+  set to detect regressions during training.
+* **PolicyGovernor** (`governor.cpp`) enforces guard-rails by vetting curated
+  samples before the trainer accepts them.
+
+Continuous learning flow
+------------------------
+1. `ContinuousLearner::ingest` accepts a prompt/teacher pair, runs it through
+   the `DataCurator`, tokenises any new vocabulary, and appends the curated
+   sample to both training and (while small) evaluation buffers.
+2. `train_step` performs a forward pass, computes a basic squared-error loss,
+   updates the student model (and active adapter, if one is attached), and logs
+   statistics.
+3. `evaluate_canary` reuses the evaluator and retrieval index to produce
+   periodic health metrics.
+4. `promote_adapter` / `rollback_adapter` allow swapping adapters on the fly by
+   delegating to `AdapterManager` and re-attaching them to the base decoder.
+
+Training log format
+-------------------
+Metrics are appended to `data/training_log.txt`.  The file starts with a short
+explanation and then prints one human-readable line per event, for example:
+
+```
+Step 42 | loss=0.123400 | accuracy=1 | adapter_norm=3.1415 | retrieval_hit_rate=0.75
+```
+
+Because the log is plain text you can inspect it with any editor or terminal
+without needing spreadsheet software such as Microsoft Office.
+
+Related data files
+------------------
+* `data/vocab.txt` – Saved vocabulary produced by `WordTokenizer::save_vocab`.
+* `data/training_log.txt` – Human-readable training and evaluation metrics.
+
+This document should give you enough context to orient yourself in the codebase
+and trace where model behaviour comes from.  For deeper details, refer to the
+C++ files mentioned above.
