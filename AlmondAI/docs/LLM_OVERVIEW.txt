@@ -1,67 +1,102 @@
 AlmondAI Language Model Overview
 ================================
 
-This document summarizes the miniature language-model stack implemented in the
-`AlmondAI/src` and `AlmondAI/include/almondai` directories.  It is meant to sit
-next to the C++ sources so you can understand the moving pieces without opening
-the code or relying on spreadsheet tooling.
+This document summarises the language-model stack implemented in
+`AlmondAI/src` and `AlmondAI/include/almondai`. It explains the core runtime,
+how the background services cooperate, and where persistent state lives so you
+can reason about changes without opening every source file.
 
-High-level architecture
------------------------
-* **BaseDecoder** (`model.cpp` / `model.hpp`)
-  * Implements an extremely small feed-forward decoder network with embeddings,
-    a configurable number of hidden layers, and a projection layer back to the
-    vocabulary.  The constructor initialises weights with a normal
-    distribution.
-  * Provides `forward` for inference, `apply_gradients` to update the projection
-    layer, and `attach_adapter` so that optional low-rank adapters can modify
-    the hidden representation.
-* **StudentModel** wraps a `BaseDecoder` and exposes `forward`/`update` so the
-  trainer does not need to manipulate the decoder directly.
-* **Adapters** (`adapter.cpp` / `adapter.hpp`) introduce LoRA-style adaptation.
-  `AdapterManager` handles registration, activation, gradient updates, and
-  statistics for whichever adapter is currently active.
-* **Tokenizer** (`tokenizer_word.cpp`) provides a simple whitespace tokenizer,
-  vocabulary persistence (`data/vocab.txt`), and encode/decode helpers used by
-  the training loop.
-* **RetrievalIndex** (`retrieval.cpp`) caches curated examples keyed by
-  prompt hashes so the model can reuse relevant responses.  Hit-rate metrics are
-  logged alongside loss.
-* **Evaluator** (`eval.cpp`) runs lightweight evaluation over a held-out sample
-  set to detect regressions during training.
-* **PolicyGovernor** (`governor.cpp`) enforces guard-rails by vetting curated
-  samples before the trainer accepts them.
+Subsystem atlas
+---------------
+* **BaseDecoder** (`model.cpp` / `model.hpp`) implements a compact decoder with
+  embeddings, configurable hidden layers, and a projection layer back to the
+  vocabulary. The constructor initialises weights from a normal distribution
+  and the object exposes `forward`, `apply_gradients`, and `resize_vocab`.
+* **StudentModel** (`model.cpp`) wraps the decoder, owns optimisation
+  hyper-parameters, and provides `forward`/`update` helpers so callers never
+  manipulate the base network directly.
+* **AdapterManager** and **Adapter** (`adapter.cpp` / `adapter.hpp`) register
+  LoRA-style adapters, swap them in and out, and keep per-adapter gradient
+  statistics used in health checks.
+* **WordTokenizer** (`tokenizer_word.cpp` / `tokenizer_word.hpp`) exposes
+  whitespace tokenisation, vocabulary growth, and persistence to
+  `data/vocab.txt`. When the vocabulary grows it signals the student to resize
+  its projection matrix.
+* **DataCurator** (`ingest.cpp` / `ingest.hpp`) filters prompts, deduplicates by
+  `prompt_hash`, records preference pairs, and enforces guard-rails before
+  training data is accepted.
+* **RetrievalIndex** (`retrieval.cpp` / `retrieval.hpp`) stores curated samples
+  for retrieval-augmented generation. Queries return scored hits and track a hit
+  rate that feeds into training telemetry.
+* **Evaluator** (`eval.cpp` / `eval.hpp`) replays a canary set to produce loss
+  and accuracy signals that catch regressions during long runs.
+* **PolicyGovernor** (`governor.cpp` / `governor.hpp`) double-checks curated
+  examples against safety policies before they are committed to disk.
+* **Tensor helpers** (`tensor.cpp` / `tensor.hpp`) provide the tiny tensor ops
+  used by the decoder and adapters.
 
-Continuous learning flow
+Service surface
+---------------
+Runtime orchestration happens in the `Service` class (`serve.cpp` /
+`serve.hpp`). It wires the learner into a Model Context Protocol bridge and
+exposes a handful of JSON-RPC-style endpoints:
+
+* **`model.generate`** performs retrieval-augmented generation. It computes a
+  prompt hash, looks up retrieval matches, samples from the decoder using the
+  configured decode settings, and returns the generated text alongside the
+  context summary.
+* **`ingest.step`** and **`train.step`** both enrol new supervision. They call
+  `ContinuousLearner::ingest` and `train_step` respectively, auto-invoking the
+  GPT teacher via `MCPBridge` when no `teacher_output` is supplied.
+* **`trainer.fit`** streams batches from `data/training_data.jsonl` for offline
+  fine-tuning runs, emitting progress over the same bridge.
+* **`eval.canary`** reports held-out evaluation metrics to confirm the student
+  has not regressed.
+* **Utility calls** – `retrieval.query`, `compiler.build`, `admin.hot_swap`, and
+  `gpt.generate` surface helper capabilities implemented in
+  `retrieval.cpp`, `buildparse.cpp`, adapter management, and the teacher bridge.
+
+`MCPBridge` (`mcp.cpp` / `mcp.hpp`) handles JSON serialisation, message routing,
+and optional delegation to external chat backends (`chat/backend.cpp`), while
+`fallback.cpp` provides deterministic canned replies if neither the local model
+nor a remote teacher can answer.
+
+Continuous learning loop
 ------------------------
-1. `ContinuousLearner::ingest` accepts a prompt/teacher pair, runs it through
-   the `DataCurator`, tokenises any new vocabulary, and appends the curated
-   sample to both training and (while small) evaluation buffers.
-2. `train_step` performs a forward pass, computes a basic squared-error loss,
-   updates the student model (and active adapter, if one is attached), and logs
-   statistics.
-3. `evaluate_canary` reuses the evaluator and retrieval index to produce
-   periodic health metrics.
-4. `promote_adapter` / `rollback_adapter` allow swapping adapters on the fly by
-   delegating to `AdapterManager` and re-attaching them to the base decoder.
+1. **Ingestion** – `ContinuousLearner::ingest` forwards prompts to the
+   `DataCurator`, refreshes the tokenizer vocabulary, stores the curated sample
+   in training/eval buffers, updates the retrieval index, and writes the example
+   to `data/training_data.jsonl`.
+2. **Training** – `train_step` tokenises the prompt/teacher pair, runs a forward
+   pass, computes a squared-error loss, applies gradients to the student (and
+   active adapter), records statistics, and persists the student weights to
+   `data/student_weights.json`.
+3. **Evaluation** – `evaluate_canary` reuses the evaluator and retrieval hit rate
+   to produce health metrics logged alongside training stats.
+4. **Adapter lifecycle** – `promote_adapter`/`rollback_adapter` switch active
+   adapters and keep the retrieval index aware of the swap so generations remain
+   consistent.
 
-Training log format
+Persistence and data files
+--------------------------
+* `data/training_data.jsonl` stores curated samples appended during ingestion.
+* `data/training_seed.jsonl` supplies starter conversations loaded on first run.
+* `data/student_weights.json` contains the decoder weights persisted after every
+  training step.
+* `data/vocab.txt` is the serialised tokenizer vocabulary.
+* `data/training_log.txt` captures human-readable training, evaluation, and
+  retrieval metrics. Each entry looks like `Step 42 | loss=0.1234 | accuracy=1 |
+  adapter_norm=3.1415 | retrieval_hit_rate=0.75`.
+
+Extending the stack
 -------------------
-Metrics are appended to `data/training_log.txt`.  The file starts with a short
-explanation and then prints one human-readable line per event, for example:
+* Implement new chat providers by subclassing `chat::Backend` and registering
+  them via `chat::make_backend`.
+* Add telemetry hooks in `ContinuousLearner::log_stats` or the retrieval index to
+  ship richer analytics.
+* Introduce structured decoding strategies by tweaking the sampling utilities in
+  `serve.cpp` (top-k, nucleus, temperature).
 
-```
-Step 42 | loss=0.123400 | accuracy=1 | adapter_norm=3.1415 | retrieval_hit_rate=0.75
-```
-
-Because the log is plain text you can inspect it with any editor or terminal
-without needing spreadsheet software such as Microsoft Office.
-
-Related data files
-------------------
-* `data/vocab.txt` – Saved vocabulary produced by `WordTokenizer::save_vocab`.
-* `data/training_log.txt` – Human-readable training and evaluation metrics.
-
-This document should give you enough context to orient yourself in the codebase
-and trace where model behaviour comes from.  For deeper details, refer to the
-C++ files mentioned above.
+With these pieces in mind you can trace how requests flow from the MCP bridge to
+the learner, how supervision is persisted, and which files to touch when
+introducing new features.

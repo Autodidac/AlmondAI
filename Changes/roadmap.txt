@@ -75,3 +75,93 @@ Acceptance Criteria
 Next Steps Prompt
 -----------------
 "You are assisting with finalising the AlmondShell engine. Determine the active roadmap phase, enumerate actionable subtasks using the checklists above, execute them, and report progress with references to code changes, tests, and documentation updates."
+
+
+AlmondAI Runtime Roadmap Prompt
+===============================
+
+Objective
+---------
+Evolve the AlmondAI research runtime into a resilient, continuously-learning
+assistant with reliable service surfaces, reproducible training flows, and
+documented extension points.
+
+Guiding Principles
+------------------
+1. Preserve the modular header/implementation split so downstream projects can
+   embed specific components without dragging in the full stack.
+2. Keep the live service observable: every long-running loop should expose
+   telemetry and surface persistent artefacts for inspection.
+3. Treat the Model Context Protocol bridge as the canonical API surface and keep
+   tooling scripted through it.
+
+Execution Plan
+--------------
+Run these phases sequentially or as targeted prompts when automating future
+assistant passes.
+
+Phase 1 – Baseline Audit & Documentation
+---------------------------------------
+**Goal:** capture the current runtime shape and ensure onboarding material is
+up to date.
+- [ ] Catalogue every MCP method, its parameters, and expected responses in
+      `AlmondAI/docs`.
+- [ ] Document the persistent artefacts (training log, weights, vocab, seeds)
+      with retention and rotation guidance.
+- [ ] Add architecture diagrams or sequence charts for ingest, train, generate,
+      and evaluation flows.
+- [ ] Script a smoke test that boots the service, performs `model.generate`,
+      `ingest.step`, and `train.step`, and inspects the resulting files.
+
+Phase 2 – Learning Loop Hardening
+---------------------------------
+**Goal:** make ingestion, training, and evaluation robust under long-running
+sessions.
+- [ ] Replace the squared-error loss with cross-entropy over the sampled token
+      distribution and add unit tests for gradient application.
+- [ ] Persist retrieval index metadata to disk and reload it on startup so
+      retrieval-augmented generations remain stable across restarts.
+- [ ] Introduce adapter checkpointing (per-adapter weight snapshots) and
+      surface health metrics for each adapter.
+- [ ] Parallelise `trainer.fit` batch processing and guard against log file
+      contention.
+
+Phase 3 – Service & Integration Enhancements
+--------------------------------------------
+**Goal:** expose production-friendly controls over the inference surface.
+- [ ] Add rate limiting and per-route quotas to `Service::run`.
+- [ ] Support streaming responses for `model.generate` using incremental token
+      callbacks.
+- [ ] Expand `chat::Backend` providers with retry/backoff policies and uniform
+      tracing hooks.
+- [ ] Harden the GPT teacher bridge with configurable circuit breakers and
+      structured error payloads.
+
+Phase 4 – Evaluation & Tooling
+-------------------------------
+**Goal:** keep the model accountable and easy to iterate on.
+- [ ] Build an evaluation harness that replays stored datasets and outputs
+      comparison reports between weight revisions.
+- [ ] Export training/evaluation metrics to a Prometheus-compatible endpoint.
+- [ ] Generate API docs from headers and publish them alongside the runtime
+      overview in `AlmondAI/docs`.
+- [ ] Create CLI utilities for seeding datasets, rotating adapters, and purging
+      artefacts.
+
+Phase 5 – Release Readiness
+---------------------------
+**Goal:** package the runtime for external consumers.
+- [ ] Produce container images and reproducible build instructions for Linux and
+      Windows.
+- [ ] Write a migration guide covering adapter schema changes, retrieval index
+      persistence, and MCP method additions.
+- [ ] Assemble example notebooks and scripts that exercise the MCP API and the
+      local inference path.
+- [ ] Draft release notes summarising feature parity, known gaps, and next
+      focus areas.
+
+Next Steps Prompt
+-----------------
+"You are advancing the AlmondAI runtime. Determine the active roadmap phase,
+list the outstanding checklist items, implement the next actionable subset, and
+return with diffs, test evidence, and updated documentation."
