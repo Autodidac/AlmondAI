@@ -277,6 +277,26 @@ BackendPtr make_backend(Kind kind, std::string a, std::string b, std::string c) 
             throw std::runtime_error("openai backend requires endpoint and model");
         }
         return std::make_unique<OpenAIBackend>(std::move(a), std::move(b), std::move(c));
+    case Kind::HuggingFace:
+        if (a.empty() || b.empty() || c.empty()) {
+            throw std::runtime_error("huggingface backend requires endpoint, model, and api key");
+        }
+        return std::make_unique<OpenAIBackend>(std::move(a), std::move(b), std::move(c));
+    case Kind::OpenRouter:
+        if (a.empty() || b.empty() || c.empty()) {
+            throw std::runtime_error("openrouter backend requires endpoint, model, and api key");
+        }
+        return std::make_unique<OpenAIBackend>(std::move(a), std::move(b), std::move(c));
+    case Kind::TogetherAI:
+        if (a.empty() || b.empty() || c.empty()) {
+            throw std::runtime_error("together.ai backend requires endpoint, model, and api key");
+        }
+        return std::make_unique<OpenAIBackend>(std::move(a), std::move(b), std::move(c));
+    case Kind::DeepInfra:
+        if (a.empty() || b.empty() || c.empty()) {
+            throw std::runtime_error("deepinfra backend requires endpoint, model, and api key");
+        }
+        return std::make_unique<OpenAIBackend>(std::move(a), std::move(b), std::move(c));
     }
     throw std::runtime_error("unknown chat backend kind");
 }
@@ -293,6 +313,10 @@ Kind parse_kind(const std::string& name) {
     if (lowered == "deeppavlov" || lowered == "deep_pavlov") return Kind::DeepPavlov;
     if (lowered == "h2o" || lowered == "h2ogpt") return Kind::H2O;
     if (lowered == "openai" || lowered == "librechat" || lowered == "openai_compat") return Kind::OpenAICompat;
+    if (lowered == "huggingface" || lowered == "hf") return Kind::HuggingFace;
+    if (lowered == "openrouter") return Kind::OpenRouter;
+    if (lowered == "together" || lowered == "togetherai") return Kind::TogetherAI;
+    if (lowered == "deepinfra" || lowered == "deep_infra") return Kind::DeepInfra;
     throw std::runtime_error("unknown chat backend kind: " + name);
 }
 
@@ -303,6 +327,10 @@ std::string kind_to_string(Kind kind) {
     case Kind::DeepPavlov: return "deeppavlov";
     case Kind::H2O: return "h2o";
     case Kind::OpenAICompat: return "openai";
+    case Kind::HuggingFace: return "huggingface";
+    case Kind::OpenRouter: return "openrouter";
+    case Kind::TogetherAI: return "togetherai";
+    case Kind::DeepInfra: return "deepinfra";
     }
     return "unknown";
 }

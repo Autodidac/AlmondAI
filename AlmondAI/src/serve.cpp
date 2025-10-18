@@ -2,6 +2,7 @@
 #include "../include/almondai/fallback.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <stdexcept>
 #include <functional>
 #include <iomanip>
@@ -12,6 +13,8 @@
 #include <limits>
 #include <variant>
 #include <type_traits>
+#include <utility>
+#include <vector>
 
 namespace almondai {
 
@@ -41,6 +44,15 @@ std::string extract_string(const JsonObject& obj, const std::string& key) {
         return it->second.as_string();
     }
     return std::string{};
+}
+
+std::string trim_whitespace(const std::string& text) {
+    auto begin = std::find_if_not(text.begin(), text.end(), [](unsigned char ch) { return std::isspace(ch) != 0; });
+    auto end = std::find_if_not(text.rbegin(), text.rend(), [](unsigned char ch) { return std::isspace(ch) != 0; }).base();
+    if (begin >= end) {
+        return std::string();
+    }
+    return std::string(begin, end);
 }
 
 std::mt19937 make_rng() {
@@ -130,31 +142,6 @@ int sample_token(const std::vector<double>& logits,
     return static_cast<int>(allowed[draw]);
 }
 
-std::string fetch_teacher_output(MCPBridge& bridge,
-                                 const std::string& prompt,
-                                 const Json& constraints) {
-    if (prompt.empty()) {
-        return std::string{};
-    }
-    JsonObject params;
-    params["prompt"] = Json(prompt);
-    if (!is_null(constraints)) {
-        params["constraints"] = constraints;
-    }
-    Json response = bridge.call("gpt.generate", Json(params));
-    if (response.is_object()) {
-        const auto& obj = response.as_object();
-        auto result_it = obj.find("result");
-        if (result_it != obj.end() && result_it->second.is_object()) {
-            const auto& result = result_it->second.as_object();
-            if (auto out_it = result.find("output"); out_it != result.end() && out_it->second.is_string()) {
-                return out_it->second.as_string();
-            }
-        }
-    }
-    return std::string{};
-}
-
 Json ensure_constraints(const JsonObject& params) {
     auto it = params.find("constraints");
     if (it != params.end()) {
@@ -199,6 +186,179 @@ std::string build_retrieval_context(const std::vector<RetrievalResult>& results,
     return oss.str();
 }
 
+std::string summarise_hits(const JsonArray& hits);
+
+struct GenerationContext {
+    std::string original_prompt;
+    std::string augmented_prompt;
+    std::vector<RetrievalResult> retrieval;
+    JsonArray hits;
+    std::string retrieval_summary;
+};
+
+GenerationContext build_generation_context(ContinuousLearner& learner,
+                                          const std::string& prompt,
+                                          bool enable_retrieval) {
+    GenerationContext ctx;
+    ctx.original_prompt = prompt;
+    ctx.augmented_prompt = prompt;
+    if (enable_retrieval) {
+        ctx.retrieval = learner.retrieval().query(prompt);
+        ctx.hits = build_retrieval_hits(ctx.retrieval);
+        ctx.retrieval_summary = summarise_hits(ctx.hits);
+        const std::string context = build_retrieval_context(ctx.retrieval, learner.tokenizer());
+        if (!context.empty()) {
+            if (!ctx.augmented_prompt.empty()) {
+                ctx.augmented_prompt += "\n\n";
+            }
+            ctx.augmented_prompt += context;
+        }
+    }
+    return ctx;
+}
+
+struct LocalGenerationOutcome {
+    std::string output;
+    bool used_fallback = false;
+    int tokens_generated = 0;
+    JsonObject fallback_payload;
+};
+
+LocalGenerationOutcome generate_with_student(ContinuousLearner& learner,
+                                             const GenerationContext& ctx,
+                                             const DecodeSettings& settings) {
+    LocalGenerationOutcome outcome;
+    std::vector<int> tokens = learner.tokenizer().encode(ctx.augmented_prompt);
+    std::vector<int> generated;
+    generated.reserve(settings.max_tokens);
+    std::mt19937 rng = make_rng();
+    const int eos_token = learner.tokenizer().token_id("<eos>");
+
+    for (int step = 0; step < settings.max_tokens; ++step) {
+        std::vector<double> logits = learner.student().forward(tokens);
+        int next = sample_token(logits, settings, generated.size(), eos_token, rng);
+        if (next == eos_token) {
+            if (generated.size() >= static_cast<std::size_t>(settings.min_tokens)) {
+                break;
+            }
+            double best = std::numeric_limits<double>::lowest();
+            int fallback = -1;
+            for (std::size_t idx = 0; idx < logits.size(); ++idx) {
+                if (static_cast<int>(idx) == eos_token) {
+                    continue;
+                }
+                if (logits[idx] > best) {
+                    best = logits[idx];
+                    fallback = static_cast<int>(idx);
+                }
+            }
+            if (fallback >= 0) {
+                next = fallback;
+            } else {
+                break;
+            }
+        }
+        if (next == eos_token || next < 0) {
+            break;
+        }
+        generated.push_back(next);
+        tokens.push_back(next);
+    }
+
+    outcome.tokens_generated = static_cast<int>(generated.size());
+    outcome.output = learner.tokenizer().decode(generated);
+    if (outcome.output.empty()) {
+        outcome.fallback_payload = fallback_response(ctx.original_prompt);
+        outcome.used_fallback = true;
+        if (auto it = outcome.fallback_payload.find("output");
+            it != outcome.fallback_payload.end() && it->second.is_string()) {
+            outcome.output = it->second.as_string();
+        }
+    }
+    return outcome;
+}
+
+bool has_placeholder_status(const JsonObject& payload) {
+    if (auto prov_it = payload.find("provenance"); prov_it != payload.end() && prov_it->second.is_object()) {
+        const auto& prov = prov_it->second.as_object();
+        if (auto status_it = prov.find("status"); status_it != prov.end() && status_it->second.is_string()) {
+            return status_it->second.as_string() == "placeholder";
+        }
+    }
+    return false;
+}
+
+struct TeacherFetchOutcome {
+    std::string output;
+    bool placeholder = false;
+    bool used_local = false;
+    JsonObject fallback;
+    std::string remote_error;
+};
+
+TeacherFetchOutcome fetch_teacher_output(ContinuousLearner& learner,
+                                         MCPBridge& bridge,
+                                         const std::string& prompt,
+                                         const Json& constraints) {
+    TeacherFetchOutcome outcome;
+    if (prompt.empty()) {
+        outcome.placeholder = true;
+        outcome.fallback = fallback_response(prompt);
+        if (auto it = outcome.fallback.find("output"); it != outcome.fallback.end() && it->second.is_string()) {
+            outcome.output = it->second.as_string();
+        }
+        return outcome;
+    }
+
+    std::string teacher_prompt = prompt;
+    if (!is_null(constraints)) {
+        teacher_prompt += "\n\nConstraints:\n" + constraints.dump();
+    }
+
+    JsonObject params;
+    params["prompt"] = Json(prompt);
+    if (!is_null(constraints)) {
+        params["constraints"] = constraints;
+    }
+
+    Json response = bridge.call("gpt.generate", Json(params));
+    JsonObject payload;
+    if (response.is_object()) {
+        const auto& obj = response.as_object();
+        if (auto result_it = obj.find("result"); result_it != obj.end() && result_it->second.is_object()) {
+            payload = result_it->second.as_object();
+            if (auto out_it = payload.find("output"); out_it != payload.end() && out_it->second.is_string()) {
+                outcome.output = out_it->second.as_string();
+            }
+            if (auto err_it = payload.find("error"); err_it != payload.end() && err_it->second.is_string()) {
+                outcome.remote_error = err_it->second.as_string();
+            }
+        }
+    }
+
+    const bool placeholder = payload.empty() || has_placeholder_status(payload);
+    if (!outcome.output.empty() && !placeholder) {
+        return outcome;
+    }
+
+    outcome.placeholder = true;
+    if (!payload.empty()) {
+        outcome.fallback = payload;
+    } else {
+        outcome.fallback = fallback_response(prompt);
+    }
+
+    DecodeSettings settings;
+    GenerationContext ctx = build_generation_context(learner, teacher_prompt, true);
+    LocalGenerationOutcome local = generate_with_student(learner, ctx, settings);
+    outcome.output = local.output;
+    outcome.used_local = true;
+    if (local.used_fallback) {
+        outcome.fallback = local.fallback_payload;
+    }
+    return outcome;
+}
+
 std::string summarise_hits(const JsonArray& hits) {
     if (hits.empty()) {
         return "No retrieval hits.";
@@ -234,7 +394,15 @@ std::string summarise_hits(const JsonArray& hits) {
 } // namespace
 
 Service::Service(ContinuousLearner& learner, MCPBridge bridge)
-    : m_learner(&learner), m_bridge(std::move(bridge)) {}
+    : m_learner(&learner), m_bridge(std::move(bridge)) {
+    m_bridge.set_chat_backend(nullptr);
+}
+
+void Service::set_chat_backend(chat::Backend* backend, std::string route_label) {
+    m_chat_backend = backend;
+    m_chat_route = std::move(route_label);
+    m_bridge.set_chat_backend(backend);
+}
 
 void Service::run(std::istream& in, std::ostream& out) {
     while (auto request = m_bridge.read_request(in)) {
@@ -264,65 +432,48 @@ JsonObject Service::handle_request(const MCPBridge::Request& request) {
         const std::string prompt = extract_string(params, "prompt");
 
         DecodeSettings settings;
-        auto retrieval_results = m_learner->retrieval().query(prompt);
-        JsonArray hits = build_retrieval_hits(retrieval_results);
-        std::string augmented = prompt;
-        const std::string context = build_retrieval_context(retrieval_results, m_learner->tokenizer());
-        if (!context.empty()) {
-            if (!augmented.empty()) {
-                augmented += "\n\n";
-            }
-            augmented += context;
-        }
+        GenerationContext ctx = build_generation_context(*m_learner, prompt, true);
 
-        std::vector<int> tokens = m_learner->tokenizer().encode(augmented);
-        std::vector<int> generated;
-        generated.reserve(settings.max_tokens);
-        std::mt19937 rng = make_rng();
-        const int eos_token = m_learner->tokenizer().token_id("<eos>");
-
-        for (int step = 0; step < settings.max_tokens; ++step) {
-            std::vector<double> logits = m_learner->student().forward(tokens);
-            int next = sample_token(logits, settings, generated.size(), eos_token, rng);
-            if (next == eos_token) {
-                if (generated.size() >= static_cast<std::size_t>(settings.min_tokens)) {
-                    break;
-                }
-                double best = std::numeric_limits<double>::lowest();
-                int fallback = -1;
-                for (std::size_t idx = 0; idx < logits.size(); ++idx) {
-                    if (static_cast<int>(idx) == eos_token) {
-                        continue;
-                    }
-                    if (logits[idx] > best) {
-                        best = logits[idx];
-                        fallback = static_cast<int>(idx);
-                    }
-                }
-                if (fallback >= 0) {
-                    next = fallback;
-                } else {
-                    break;
-                }
-            }
-            if (next == eos_token) {
-                break;
-            }
-            if (next < 0) {
-                break;
-            }
-            generated.push_back(next);
-            tokens.push_back(next);
-        }
-
-        std::string output = m_learner->tokenizer().decode(generated);
+        std::string output;
+        std::string route = "local";
         bool used_fallback = false;
-        if (output.empty()) {
-            JsonObject fb = fallback_response(prompt);
-            if (auto it = fb.find("output"); it != fb.end() && it->second.is_string()) {
-                output = it->second.as_string();
+        int tokens_generated = 0;
+        bool remote_used = false;
+        std::string remote_error;
+        bool include_fallback = false;
+        JsonObject fallback_info;
+
+        if (m_chat_backend) {
+            try {
+                std::vector<almondai::chat::Message> conversation;
+                conversation.push_back({"user", ctx.augmented_prompt});
+                std::string reply = trim_whitespace(m_chat_backend->complete(conversation));
+                if (!reply.empty()) {
+                    output = std::move(reply);
+                    remote_used = true;
+                    route = "remote";
+                } else {
+                    remote_error = "chat backend returned empty response";
+                }
+            } catch (const std::exception& ex) {
+                remote_error = ex.what();
             }
-            used_fallback = true;
+        }
+
+        if (!remote_used) {
+            LocalGenerationOutcome local = generate_with_student(*m_learner, ctx, settings);
+            output = local.output;
+            used_fallback = local.used_fallback;
+            tokens_generated = local.tokens_generated;
+            route = used_fallback ? "fallback" : "local";
+            if (local.used_fallback) {
+                fallback_info = local.fallback_payload;
+                include_fallback = true;
+            }
+            if (!include_fallback && !remote_error.empty()) {
+                fallback_info = fallback_response(prompt);
+                include_fallback = true;
+            }
         }
 
         GovernorReport report = m_learner->governor().validate_output(output, Json());
@@ -333,13 +484,103 @@ JsonObject Service::handle_request(const MCPBridge::Request& request) {
 
         JsonObject payload;
         payload["output"] = Json(output);
-        payload["route"] = Json(used_fallback ? "fallback" : "local");
+        payload["route"] = Json(route);
         payload["prompt_hash"] = Json(compute_prompt_hash(prompt));
-        payload["tokens_generated"] = Json(static_cast<int>(generated.size()));
-        payload["retrieval"] = Json(hits);
-        payload["retrieval_summary"] = Json(summarise_hits(hits));
+        payload["tokens_generated"] = Json(remote_used ? 0 : tokens_generated);
+        payload["retrieval"] = Json(ctx.hits);
+        payload["retrieval_summary"] = Json(ctx.retrieval_summary.empty() ? summarise_hits(ctx.hits) : ctx.retrieval_summary);
         payload["violations"] = Json(violations);
         payload["allowed"] = Json(report.allowed);
+        if (remote_used && !m_chat_route.empty()) {
+            payload["backend"] = Json(m_chat_route);
+        }
+        if (!remote_error.empty() && !remote_used) {
+            payload["remote_error"] = Json(remote_error);
+        }
+        if (include_fallback) {
+            payload["fallback"] = Json(fallback_info);
+        }
+        return payload;
+    }
+
+    if (request.method == "gpt.generate") {
+        const auto& params = request.params.as_object();
+        const std::string prompt = extract_string(params, "prompt");
+        Json constraints = ensure_constraints(params);
+
+        std::string teacher_prompt = prompt;
+        if (!is_null(constraints)) {
+            teacher_prompt += "\n\nConstraints:\n" + constraints.dump();
+        }
+
+        DecodeSettings settings;
+        GenerationContext ctx = build_generation_context(*m_learner, teacher_prompt, true);
+
+        std::string output;
+        bool remote_used = false;
+        bool used_fallback = false;
+        bool include_fallback = false;
+        JsonObject fallback_info;
+        std::string remote_error;
+
+        if (m_chat_backend) {
+            try {
+                std::vector<almondai::chat::Message> conversation;
+                conversation.push_back({"system", "You are AlmondAI's teacher model. Provide thorough, safe answers suitable for fine-tuning."});
+                conversation.push_back({"user", ctx.augmented_prompt});
+                std::string reply = trim_whitespace(m_chat_backend->complete(conversation));
+                if (!reply.empty()) {
+                    output = std::move(reply);
+                    remote_used = true;
+                } else {
+                    remote_error = "chat backend returned empty response";
+                }
+            } catch (const std::exception& ex) {
+                remote_error = ex.what();
+            }
+        }
+
+        if (!remote_used) {
+            LocalGenerationOutcome local = generate_with_student(*m_learner, ctx, settings);
+            output = local.output;
+            used_fallback = local.used_fallback;
+            if (local.used_fallback) {
+                fallback_info = local.fallback_payload;
+                include_fallback = true;
+            }
+            if (!include_fallback) {
+                fallback_info = fallback_response(prompt);
+                include_fallback = true;
+            }
+        }
+
+        GovernorReport report = m_learner->governor().validate_output(output, Json());
+        JsonArray violations;
+        for (const auto& violation : report.violations) {
+            violations.emplace_back(Json(violation));
+        }
+
+        JsonObject provenance;
+        provenance["source"] = Json(remote_used ? "chat_backend" : "local");
+        provenance["status"] = Json(remote_used ? "remote" : (used_fallback ? "fallback" : "local"));
+        if (remote_used && !m_chat_route.empty()) {
+            provenance["backend"] = Json(m_chat_route);
+        }
+
+        JsonObject payload;
+        payload["output"] = Json(output);
+        payload["route"] = Json(remote_used ? "remote" : (used_fallback ? "fallback" : "local"));
+        payload["provenance"] = Json(provenance);
+        payload["violations"] = Json(violations);
+        payload["allowed"] = Json(report.allowed);
+        payload["retrieval"] = Json(ctx.hits);
+        payload["retrieval_summary"] = Json(ctx.retrieval_summary.empty() ? summarise_hits(ctx.hits) : ctx.retrieval_summary);
+        if (!remote_error.empty() && !remote_used) {
+            payload["remote_error"] = Json(remote_error);
+        }
+        if (include_fallback) {
+            payload["fallback"] = Json(fallback_info);
+        }
         return payload;
     }
 
@@ -391,8 +632,12 @@ JsonObject Service::handle_request(const MCPBridge::Request& request) {
         const std::string prompt = extract_string(params, "prompt");
         std::string teacher_output = extract_string(params, "teacher_output");
         Json constraints = ensure_constraints(params);
+        TeacherFetchOutcome teacher;
+        bool fetched = false;
         if (teacher_output.empty()) {
-            teacher_output = fetch_teacher_output(m_bridge, prompt, constraints);
+            teacher = fetch_teacher_output(*m_learner, m_bridge, prompt, constraints);
+            teacher_output = teacher.output;
+            fetched = true;
         }
         const std::string hash = ensure_prompt_hash(params, prompt);
 
@@ -400,6 +645,16 @@ JsonObject Service::handle_request(const MCPBridge::Request& request) {
         if (teacher_output.empty()) {
             payload["output"] = Json("Teacher response unavailable.");
             payload["accepted"] = Json(false);
+            if (fetched && !teacher.fallback.empty()) {
+                payload["fallback"] = Json(teacher.fallback);
+            }
+            if (fetched && !teacher.remote_error.empty()) {
+                payload["remote_error"] = Json(teacher.remote_error);
+            }
+            if (fetched) {
+                std::string teacher_route = teacher.placeholder ? (teacher.used_local ? "local" : "fallback") : "remote";
+                payload["teacher_route"] = Json(teacher_route);
+            }
             return payload;
         }
 
@@ -407,6 +662,16 @@ JsonObject Service::handle_request(const MCPBridge::Request& request) {
         payload["accepted"] = Json(curated.has_value());
         payload["teacher_output"] = Json(teacher_output);
         payload["output"] = Json(curated ? "Sample ingested." : "Sample rejected by curator.");
+        if (fetched && !teacher.fallback.empty()) {
+            payload["fallback"] = Json(teacher.fallback);
+        }
+        if (fetched && !teacher.remote_error.empty()) {
+            payload["remote_error"] = Json(teacher.remote_error);
+        }
+        if (fetched) {
+            std::string teacher_route = teacher.placeholder ? (teacher.used_local ? "local" : "fallback") : "remote";
+            payload["teacher_route"] = Json(teacher_route);
+        }
         return payload;
     }
 
@@ -415,8 +680,12 @@ JsonObject Service::handle_request(const MCPBridge::Request& request) {
         const std::string prompt = extract_string(params, "prompt");
         std::string teacher_output = extract_string(params, "teacher_output");
         Json constraints = ensure_constraints(params);
+        TeacherFetchOutcome teacher;
+        bool fetched = false;
         if (teacher_output.empty()) {
-            teacher_output = fetch_teacher_output(m_bridge, prompt, constraints);
+            teacher = fetch_teacher_output(*m_learner, m_bridge, prompt, constraints);
+            teacher_output = teacher.output;
+            fetched = true;
         }
         const std::string hash = ensure_prompt_hash(params, prompt);
 
@@ -424,6 +693,16 @@ JsonObject Service::handle_request(const MCPBridge::Request& request) {
         if (teacher_output.empty()) {
             payload["output"] = Json("Teacher model unavailable.");
             payload["status"] = Json("teacher_unavailable");
+            if (fetched && !teacher.fallback.empty()) {
+                payload["fallback"] = Json(teacher.fallback);
+            }
+            if (fetched && !teacher.remote_error.empty()) {
+                payload["remote_error"] = Json(teacher.remote_error);
+            }
+            if (fetched) {
+                std::string teacher_route = teacher.placeholder ? (teacher.used_local ? "local" : "fallback") : "remote";
+                payload["teacher_route"] = Json(teacher_route);
+            }
             return payload;
         }
 
@@ -431,6 +710,16 @@ JsonObject Service::handle_request(const MCPBridge::Request& request) {
         if (!curated) {
             payload["output"] = Json("Sample skipped by curator.");
             payload["status"] = Json("skipped");
+            if (fetched && !teacher.fallback.empty()) {
+                payload["fallback"] = Json(teacher.fallback);
+            }
+            if (fetched && !teacher.remote_error.empty()) {
+                payload["remote_error"] = Json(teacher.remote_error);
+            }
+            if (fetched) {
+                std::string teacher_route = teacher.placeholder ? (teacher.used_local ? "local" : "fallback") : "remote";
+                payload["teacher_route"] = Json(teacher_route);
+            }
             return payload;
         }
 
@@ -442,6 +731,16 @@ JsonObject Service::handle_request(const MCPBridge::Request& request) {
         payload["adapter_norm"] = Json(stats.adapter_norm);
         payload["retrieval_hit_rate"] = Json(stats.retrieval_hit_rate);
         payload["teacher_output"] = Json(teacher_output);
+        if (fetched && !teacher.fallback.empty()) {
+            payload["fallback"] = Json(teacher.fallback);
+        }
+        if (fetched && !teacher.remote_error.empty()) {
+            payload["remote_error"] = Json(teacher.remote_error);
+        }
+        if (fetched) {
+            std::string teacher_route = teacher.placeholder ? (teacher.used_local ? "local" : "fallback") : "remote";
+            payload["teacher_route"] = Json(teacher_route);
+        }
         return payload;
     }
 
