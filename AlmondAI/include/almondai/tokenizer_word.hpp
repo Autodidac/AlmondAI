@@ -31,6 +31,8 @@ public:
     std::vector<int> encode(const std::string& text) const;
     std::string decode(const std::vector<int>& tokens) const;
 
+    int token_id(const std::string& token) const;
+
     void save_vocab(const std::string& path) const;
     void load_vocab(const std::string& path);
 

@@ -25,10 +25,12 @@
 #include "../../../AlmondAI/include/almondai/adapter.hpp"
 #include "../../../AlmondAI/include/almondai/tokenizer_word.hpp"
 #include "../../../AlmondAI/include/almondai/json.hpp"
+#include "../../../AlmondAI/include/almondai/chat/backend.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <charconv>
+#include <cstdlib>
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
@@ -78,8 +80,35 @@ int main() {
     MCPBridge bridge;
     Service service(learner, bridge);
 
+    almondai::chat::BackendPtr chat_backend;
+    std::optional<almondai::chat::Kind> chat_kind;
+    std::vector<almondai::chat::Message> conversation;
+
+    auto getenv_string = [](const char* name) -> std::string {
+        const char* value = std::getenv(name);
+        return value ? std::string(value) : std::string();
+    };
+
+    const std::string env_kind = getenv_string("ALMONDAI_CHAT_KIND");
+    if (!env_kind.empty()) {
+        const std::string env_endpoint = getenv_string("ALMONDAI_ENDPOINT");
+        const std::string env_model = getenv_string("ALMONDAI_MODEL");
+        const std::string env_key = getenv_string("ALMONDAI_API_KEY");
+        try {
+            almondai::chat::Kind parsed = almondai::chat::parse_kind(env_kind);
+            chat_backend = almondai::chat::make_backend(parsed, env_endpoint, env_model, env_key);
+            chat_kind = parsed;
+            std::cout << "Connected to " << almondai::chat::kind_to_string(parsed)
+                      << " chat backend from environment configuration.\n";
+        }
+        catch (const std::exception& ex) {
+            std::cout << "Failed to configure chat backend from environment: " << ex.what() << "\n";
+        }
+    }
+
     std::cout << "AlmondAI interactive console\n"
-        "Type 'help' to list available commands or 'exit' to quit.\n";
+        "Type 'help' to list available commands or 'exit' to quit.\n"
+        "Use 'chat use' to connect to an external backend or 'chat clear' to return to local inference.\n";
 
     auto trim = [](std::string& text) {
         auto not_space = [](unsigned char ch) { return !std::isspace(ch); };
@@ -364,15 +393,62 @@ int main() {
         if (command == "help") {
             std::cout <<
                 "Available commands:\n"
-                "  generate <prompt>      Generate a completion for the prompt.\n"
+                "  generate <prompt>      Generate a completion (uses chat backend if configured).\n"
                 "  retrieve <query>       Query the retrieval index.\n"
                 "  train <file> [epochs] [batch]  Run iterative training over <file>.\n"
                 "  hot-swap [name]        Promote adapter <name> or rollback if omitted.\n"
+                "  chat use <kind> <endpoint> [arg2] [arg3]  Switch to an external chat backend.\n"
+                "  chat clear             Return to local model responses.\n"
                 "  exit                   Quit the console.\n";
             continue;
         }
 
         try {
+            if (command == "chat") {
+                std::string subcommand;
+                iss >> subcommand;
+                if (subcommand == "use") {
+                    std::vector<std::string> args;
+                    std::string token;
+                    while (iss >> token) {
+                        args.push_back(token);
+                    }
+                    if (args.size() < 2) {
+                        std::cout << "Usage: chat use <kind> <endpoint> [arg2] [arg3]\n";
+                        continue;
+                    }
+                    try {
+                        almondai::chat::Kind kind = almondai::chat::parse_kind(args[0]);
+                        std::string a = args[1];
+                        std::string b = args.size() >= 3 ? args[2] : std::string();
+                        std::string c = args.size() >= 4 ? args[3] : std::string();
+                        chat_backend = almondai::chat::make_backend(kind, std::move(a), std::move(b), std::move(c));
+                        chat_kind = kind;
+                        conversation.clear();
+                        std::cout << "Using " << almondai::chat::kind_to_string(kind)
+                                  << " chat backend.\n";
+                    }
+                    catch (const std::exception& ex) {
+                        std::cout << "Failed to configure chat backend: " << ex.what() << "\n";
+                    }
+                    continue;
+                }
+                if (subcommand == "clear") {
+                    if (chat_kind) {
+                        std::cout << "Chat backend '" << almondai::chat::kind_to_string(*chat_kind)
+                                  << "' cleared. Local model enabled.\n";
+                    } else {
+                        std::cout << "Chat backend cleared. Local model enabled.\n";
+                    }
+                    chat_backend.reset();
+                    chat_kind.reset();
+                    conversation.clear();
+                    continue;
+                }
+                std::cout << "Usage: chat use <kind> <endpoint> [arg2] [arg3] or chat clear\n";
+                continue;
+            }
+
             if (command == "generate") {
                 std::string prompt;
                 std::getline(iss, prompt);
@@ -382,14 +458,55 @@ int main() {
                 JsonObject params;
                 params["prompt"] = Json(prompt);
 
+                bool used_remote = false;
+                if (chat_backend) {
+                    almondai::chat::Message user_message{"user", prompt};
+                    conversation.push_back(user_message);
+                    try {
+                        std::string reply = chat_backend->complete(conversation);
+                        if (!reply.empty()) {
+                            conversation.push_back({"assistant", reply});
+                            while (conversation.size() > 40) {
+                                if (conversation.size() >= 2) {
+                                    conversation.erase(conversation.begin(), conversation.begin() + 2);
+                                } else {
+                                    conversation.erase(conversation.begin());
+                                }
+                            }
+                            std::cout << reply << "\n";
+                            used_remote = true;
+                        }
+                        else {
+                            std::cout << "Chat backend returned an empty response; falling back to local model.\n";
+                        }
+                    }
+                    catch (const std::exception& ex) {
+                        std::cout << "Chat backend error: " << ex.what() << "\n";
+                    }
+                }
+
+                if (used_remote) {
+                    continue;
+                }
+
                 auto result = invoke_service("model.generate", Json(params));
                 if (!result) {
                     result = invoke_service("generate", Json(params));
                 }
-                if (result) {
+                if (result && result->is_object()) {
                     const auto& obj = result->as_object();
                     if (auto it = obj.find("output"); it != obj.end() && it->second.is_string()) {
                         std::cout << it->second.as_string() << "\n";
+                        if (chat_backend) {
+                            conversation.push_back({"assistant", it->second.as_string()});
+                            while (conversation.size() > 40) {
+                                if (conversation.size() >= 2) {
+                                    conversation.erase(conversation.begin(), conversation.begin() + 2);
+                                } else {
+                                    conversation.erase(conversation.begin());
+                                }
+                            }
+                        }
                     }
                     else if (auto t = obj.find("text"); t != obj.end() && t->second.is_string()) {
                         std::cout << t->second.as_string() << "\n";
@@ -418,7 +535,46 @@ int main() {
                     result = invoke_service("retrieve", Json(params));
                 }
                 if (result) {
-                    if (result->is_array()) {
+                    if (result->is_object()) {
+                        const auto& obj = result->as_object();
+                        bool printed_summary = false;
+                        if (auto out = obj.find("output"); out != obj.end() && out->second.is_string()) {
+                            std::cout << out->second.as_string() << "\n";
+                            printed_summary = true;
+                        }
+                        if (auto hits_it = obj.find("hits"); hits_it != obj.end() && hits_it->second.is_array()) {
+                            const auto& arr = hits_it->second.as_array();
+                            if (!printed_summary) {
+                                if (arr.empty()) {
+                                    std::cout << "No retrieval hits.\n";
+                                } else {
+                                    for (const auto& item : arr) {
+                                        if (!item.is_object()) {
+                                            continue;
+                                        }
+                                        const auto& hit = item.as_object();
+                                        std::string id = hit.count("document_id") ? hit.at("document_id").as_string() : "<no-id>";
+                                        double score = 0.0;
+                                        if (auto score_it = hit.find("score"); score_it != hit.end()) {
+                                            const auto& v = score_it->second.value();
+                                            std::visit([&](const auto& x) {
+                                                using T = std::decay_t<decltype(x)>;
+                                                if constexpr (std::is_arithmetic_v<T>) {
+                                                    score = static_cast<double>(x);
+                                                } else if constexpr (std::is_same_v<T, std::string>) {
+                                                    try { score = std::stod(x); } catch (...) {}
+                                                }
+                                            }, v);
+                                        }
+                                        std::cout << "- " << id << " (score: " << score << ")\n";
+                                    }
+                                }
+                            }
+                        } else if (!printed_summary) {
+                            std::cout << "Unexpected response format.\n";
+                        }
+                    }
+                    else if (result->is_array()) {
                         const auto& arr = result->as_array();
                         if (arr.empty()) {
                             std::cout << "No retrieval hits.\n";
@@ -427,45 +583,20 @@ int main() {
                             for (const auto& item : arr) {
                                 const auto& obj = item.as_object();
                                 std::string id = obj.count("document_id") ? obj.at("document_id").as_string() : "<no-id>";
-
                                 double score = 0.0;
                                 if (auto it = obj.find("score"); it != obj.end()) {
-                                    // Accept any arithmetic type or stringified number.
-                                    const auto& v = it->second.value(); // variant inside your Json
+                                    const auto& v = it->second.value();
                                     std::visit([&](const auto& x) {
                                         using T = std::decay_t<decltype(x)>;
                                         if constexpr (std::is_arithmetic_v<T>) {
                                             score = static_cast<double>(x);
+                                        } else if constexpr (std::is_same_v<T, std::string>) {
+                                            try { score = std::stod(x); } catch (...) {}
                                         }
-                                        else if constexpr (std::is_same_v<T, std::string>) {
-                                            const char* begin = x.data();
-                                            const char* end = x.data() + x.size();
-                                            // try integer first (fast, no alloc)
-                                            long long ll = 0;
-                                            if (auto [p, ec] = std::from_chars(begin, end, ll); ec == std::errc{} && p == end) {
-                                                score = static_cast<double>(ll);
-                                            }
-                                            else {
-                                                // fallback: double parse
-                                                try { score = std::stod(x); }
-                                                catch (...) {}
-                                            }
-                                        }
-                                        // else: ignore non-numeric types
-                                        }, v);
+                                    }, v);
                                 }
-
                                 std::cout << "- " << id << " (score: " << score << ")\n";
                             }
-                        }
-                    }
-                    else if (result->is_object()) {
-                        const auto& obj = result->as_object();
-                        if (auto text = obj.find("text"); text != obj.end() && text->second.is_string()) {
-                            std::cout << text->second.as_string() << "\n";
-                        }
-                        else {
-                            std::cout << "Unexpected response format.\n";
                         }
                     }
                     else {
@@ -555,8 +686,24 @@ int main() {
                     response = invoke_service("hot-swap", Json(params));
                 }
                 if (response) {
-                    if (name.empty()) std::cout << "Rolled back to previous adapter.\n";
-                    else             std::cout << "Promoted adapter '" << name << "'.\n";
+                    if (response->is_object()) {
+                        const auto& obj = response->as_object();
+                        if (auto out = obj.find("output"); out != obj.end() && out->second.is_string()) {
+                            std::cout << out->second.as_string() << "\n";
+                        }
+                        else if (name.empty()) {
+                            std::cout << "Rolled back to previous adapter.\n";
+                        }
+                        else {
+                            std::cout << "Promoted adapter '" << name << "'.\n";
+                        }
+                    }
+                    else if (name.empty()) {
+                        std::cout << "Rolled back to previous adapter.\n";
+                    }
+                    else {
+                        std::cout << "Promoted adapter '" << name << "'.\n";
+                    }
                 }
                 else {
                     std::cout << "(no response)\n";
