@@ -7,6 +7,8 @@
 #include <functional>
 #include <system_error>
 #include <fstream>
+#include <chrono>
+#include <random>
 
 namespace almondai {
 
@@ -16,6 +18,41 @@ const std::filesystem::path kSeedDataPath{"data/training_seed.jsonl"};
 const std::filesystem::path kVocabPath{"data/vocab.txt"};
 const std::filesystem::path kWeightsPath{"data/student_weights.json"};
 const std::filesystem::path kSeedTextPath{"data/seed.txt"};
+
+std::optional<CuratedSample> parse_sample_line(const std::string& line) {
+    if (line.empty()) {
+        return std::nullopt;
+    }
+    try {
+        Json record = Json::parse(line);
+        if (!record.is_object()) {
+            return std::nullopt;
+        }
+        const auto& obj = record.as_object();
+        auto prompt_it = obj.find("prompt");
+        auto output_it = obj.find("teacher_output");
+        if (prompt_it == obj.end() || output_it == obj.end()) {
+            return std::nullopt;
+        }
+        if (!prompt_it->second.is_string() || !output_it->second.is_string()) {
+            return std::nullopt;
+        }
+        CuratedSample sample;
+        sample.prompt = prompt_it->second.as_string();
+        sample.teacher_output = output_it->second.as_string();
+        if (auto constraints_it = obj.find("constraints"); constraints_it != obj.end()) {
+            sample.constraints = constraints_it->second;
+        }
+        if (auto provenance_it = obj.find("provenance"); provenance_it != obj.end()) {
+            sample.provenance = provenance_it->second;
+        } else {
+            sample.provenance = JsonObject{};
+        }
+        return sample;
+    } catch (...) {
+        return std::nullopt;
+    }
+}
 
 std::string ensure_seed_text() {
     namespace fs = std::filesystem;
@@ -145,33 +182,66 @@ void ContinuousLearner::fit(const std::string& path,
                             int epochs,
                             int batch,
                             std::function<void(int, double, double, double)> on_batch) {
-    (void)path; // Stub implementation does not yet read from disk.
+    const int safe_epochs = std::max(1, epochs);
+    const int safe_batch = std::max(1, batch);
 
-    if (!on_batch) {
+    std::vector<CuratedSample> dataset = m_training_data;
+
+    if (!path.empty()) {
+        std::ifstream file(path);
+        if (file) {
+            std::string line;
+            while (std::getline(file, line)) {
+                if (auto sample = parse_sample_line(line)) {
+                    const std::size_t before_vocab = m_tokenizer.vocab().size();
+                    m_tokenizer.build_vocab({sample->prompt, sample->teacher_output});
+                    if (m_tokenizer.vocab().size() > before_vocab) {
+                        m_student.base().resize_vocab(m_tokenizer.vocab().size());
+                        m_tokenizer.save_vocab(kVocabPath.string());
+                    }
+                    dataset.push_back(*sample);
+                }
+            }
+        }
+    }
+
+    if (dataset.empty()) {
         return;
     }
 
-    const int safe_epochs = std::max(1, epochs);
-    const int safe_batch = std::max(1, batch);
-    const int dataset_size = static_cast<int>(m_training_data.size());
-    const int steps_per_epoch = dataset_size > 0
-        ? std::max(1, (dataset_size + safe_batch - 1) / safe_batch)
-        : 5;
+    std::mt19937 rng(std::random_device{}());
+    const int steps_per_epoch = std::max(1, static_cast<int>((dataset.size() + safe_batch - 1) / safe_batch));
+    const double base_lr = m_student.base().config().learning_rate;
 
-    const int total_steps = safe_epochs * steps_per_epoch;
-    double simulated_loss = 2.0;
-    const double base_lr = 5e-4;
-    double tokens_per_second = 12000.0;
-
+    int global_step = 0;
     for (int epoch = 0; epoch < safe_epochs; ++epoch) {
-        for (int step_idx = 0; step_idx < steps_per_epoch; ++step_idx) {
-            const int global_step = epoch * steps_per_epoch + step_idx + 1;
-            simulated_loss = std::max(0.01, simulated_loss * 0.97);
-            const double progress = static_cast<double>(global_step) / static_cast<double>(total_steps);
-            const double current_lr = base_lr * (0.5 + 0.5 * (1.0 - progress));
-            tokens_per_second = 10000.0 + 250.0 * static_cast<double>(global_step);
+        std::shuffle(dataset.begin(), dataset.end(), rng);
+        for (std::size_t offset = 0; offset < dataset.size(); offset += static_cast<std::size_t>(safe_batch)) {
+            const std::size_t end = std::min(dataset.size(), offset + static_cast<std::size_t>(safe_batch));
+            if (end <= offset) {
+                continue;
+            }
+            const auto batch_start_time = std::chrono::steady_clock::now();
+            double loss_sum = 0.0;
+            std::size_t token_count = 0;
+            for (std::size_t i = offset; i < end; ++i) {
+                token_count += m_tokenizer.encode(dataset[i].prompt).size();
+                TrainingStats stats = train_step(dataset[i]);
+                loss_sum += stats.loss;
+            }
+            const auto batch_end_time = std::chrono::steady_clock::now();
+            const std::chrono::duration<double> elapsed = batch_end_time - batch_start_time;
+            const double tokens_per_second = elapsed.count() > 0.0
+                ? static_cast<double>(token_count) / elapsed.count()
+                : 0.0;
 
-            on_batch(global_step, simulated_loss, current_lr, tokens_per_second);
+            ++global_step;
+            if (on_batch) {
+                const double average_loss = loss_sum / static_cast<double>(end - offset);
+                const double schedule = 0.5 + 0.5 * (1.0 - (static_cast<double>(global_step - 1) / static_cast<double>(safe_epochs * steps_per_epoch)));
+                const double current_lr = base_lr * schedule;
+                on_batch(global_step, average_loss, current_lr, tokens_per_second);
+            }
         }
     }
 }
@@ -265,48 +335,23 @@ void ContinuousLearner::load_samples_from_file(const std::filesystem::path& path
         if (line.empty()) {
             continue;
         }
-        try {
-            Json record = Json::parse(line);
-            if (!record.is_object()) {
-                continue;
-            }
-            const auto& obj = record.as_object();
-            auto prompt_it = obj.find("prompt");
-            auto output_it = obj.find("teacher_output");
-            if (prompt_it == obj.end() || output_it == obj.end()) {
-                continue;
-            }
-            if (!prompt_it->second.is_string() || !output_it->second.is_string()) {
-                continue;
-            }
-            CuratedSample sample;
-            sample.prompt = prompt_it->second.as_string();
-            sample.teacher_output = output_it->second.as_string();
-            if (auto constraints_it = obj.find("constraints"); constraints_it != obj.end()) {
-                sample.constraints = constraints_it->second;
-            }
-            if (auto provenance_it = obj.find("provenance"); provenance_it != obj.end()) {
-                sample.provenance = provenance_it->second;
-            } else {
-                sample.provenance = JsonObject{};
-            }
+        if (auto sample = parse_sample_line(line)) {
+            CuratedSample sample_value = *sample;
             const std::size_t before_vocab = m_tokenizer.vocab().size();
-            m_tokenizer.build_vocab({sample.prompt, sample.teacher_output});
+            m_tokenizer.build_vocab({sample_value.prompt, sample_value.teacher_output});
             if (m_tokenizer.vocab().size() > before_vocab) {
                 m_student.base().resize_vocab(m_tokenizer.vocab().size());
             }
             const std::size_t index = m_training_data.size();
-            const std::string document_id = derive_document_id(sample, index);
+            const std::string document_id = derive_document_id(sample_value, index);
             if (!document_id.empty()) {
                 m_curator.mark_seen(document_id);
             }
-            m_training_data.push_back(sample);
+            m_training_data.push_back(sample_value);
             if (m_eval_data.size() < 16) {
-                m_eval_data.push_back(sample);
+                m_eval_data.push_back(sample_value);
             }
-            m_retrieval.ingest_document(document_id, sample.teacher_output);
-        } catch (...) {
-            continue;
+            m_retrieval.ingest_document(document_id, sample_value.teacher_output);
         }
     }
     if (!m_training_data.empty()) {
