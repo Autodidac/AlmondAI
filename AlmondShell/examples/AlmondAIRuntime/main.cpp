@@ -90,6 +90,8 @@ int main() {
     // Robust service bridge:
     // 1) Try parsing the entire buffer as one JSON object.
     // 2) If that fails, scan all non-empty lines and parse the last valid JSON.
+    // 3) Fall back to treating any remaining text as a "text" field so legacy
+    //    services that only stream plain strings still echo something useful.
     auto invoke_service = [&service](const std::string& method, Json params) -> std::optional<Json> {
         JsonObject request;
         request["id"] = Json("cli");
@@ -105,19 +107,43 @@ int main() {
             return std::nullopt;
         }
 
-        auto try_extract_result = [](const Json& response) -> std::optional<Json> {
-            const auto& obj = response.as_object();
-            if (auto err = obj.find("error"); err != obj.end()) {
-                const auto& err_obj = err->second.as_object();
-                if (auto it = err_obj.find("message"); it != err_obj.end() && it->second.is_string())
-                    throw std::runtime_error(it->second.as_string());
-                throw std::runtime_error("service returned an error");
+        auto wrap_text_result = [](std::string text) -> Json {
+            JsonObject obj;
+            obj["text"] = Json(std::move(text));
+            return Json(obj);
+        };
+
+        auto try_extract_result = [&wrap_text_result](const Json& response) -> std::optional<Json> {
+            if (response.is_object()) {
+                const auto& obj = response.as_object();
+                if (auto err = obj.find("error"); err != obj.end()) {
+                    const Json& payload = err->second;
+                    if (payload.is_object()) {
+                        const auto& err_obj = payload.as_object();
+                        if (auto it = err_obj.find("message"); it != err_obj.end() && it->second.is_string()) {
+                            throw std::runtime_error(it->second.as_string());
+                        }
+                    }
+                    throw std::runtime_error("service returned an error");
+                }
+                if (auto res = obj.find("result"); res != obj.end()) {
+                    return res->second;
+                }
+                if (obj.find("output") != obj.end() || obj.find("text") != obj.end()) {
+                    return Json(response);
+                }
+                return std::nullopt;
             }
-            if (auto res = obj.find("result"); res != obj.end()) {
-                return res->second;
+            if (response.is_array()) {
+                return response;
+            }
+            if (response.is_string()) {
+                return wrap_text_result(response.as_string());
             }
             return std::nullopt;
-            };
+        };
+
+        std::string fallback_text;
 
         // Strategy A: whole buffer is one JSON
         try {
@@ -140,10 +166,17 @@ int main() {
                 if (auto r = try_extract_result(j)) last_result = std::move(r);
             }
             catch (...) {
-                // ignore non-JSON log lines
+                if (!fallback_text.empty()) fallback_text.append("\n");
+                fallback_text.append(line);
             }
         }
-        return last_result;
+        if (last_result) {
+            return last_result;
+        }
+        if (!fallback_text.empty()) {
+            return wrap_text_result(fallback_text);
+        }
+        return std::nullopt;
         };
 
     auto invoke_service_streaming = [&service](const std::string& method, Json params) -> bool {
@@ -226,6 +259,7 @@ int main() {
         bool saw_result = false;
         double final_loss = 0.0;
         int final_step = 0;
+        std::string fallback_text;
 
         while (std::getline(lines, raw)) {
             if (!raw.empty() && raw.back() == '\r') raw.pop_back();
@@ -237,9 +271,13 @@ int main() {
                 parsed = Json::parse(raw);
             }
             catch (...) {
+                if (!fallback_text.empty()) fallback_text.append("\n");
+                fallback_text.append(raw);
                 continue;
             }
             if (!parsed.is_object()) {
+                if (!fallback_text.empty()) fallback_text.append("\n");
+                fallback_text.append(raw);
                 continue;
             }
             const auto& obj = parsed.as_object();
@@ -301,6 +339,12 @@ int main() {
         }
         else if (saw_batch) {
             std::cout << '\r' << std::string(last_width, ' ') << '\r' << std::flush;
+            return true;
+        }
+
+        if (!fallback_text.empty()) {
+            std::cout << fallback_text << '\n';
+            return true;
         }
 
         return saw_result || saw_batch;
@@ -338,9 +382,11 @@ int main() {
                 JsonObject params;
                 params["prompt"] = Json(prompt);
 
-                // If your Service expects plain "generate", change here:
-                // if (auto result = invoke_service("generate", Json(params))) { ... }
-                if (auto result = invoke_service("model.generate", Json(params))) {
+                auto result = invoke_service("model.generate", Json(params));
+                if (!result) {
+                    result = invoke_service("generate", Json(params));
+                }
+                if (result) {
                     const auto& obj = result->as_object();
                     if (auto it = obj.find("output"); it != obj.end() && it->second.is_string()) {
                         std::cout << it->second.as_string() << "\n";
@@ -367,47 +413,63 @@ int main() {
                 JsonObject params;
                 params["query"] = Json(query);
 
-                // If your Service expects plain "retrieve", change here:
-                // if (auto result = invoke_service("retrieve", Json(params))) { ... }
-                if (auto result = invoke_service("retrieval.query", Json(params))) {
-                    const auto& arr = result->as_array();
-                    if (arr.empty()) {
-                        std::cout << "No retrieval hits.\n";
+                auto result = invoke_service("retrieval.query", Json(params));
+                if (!result) {
+                    result = invoke_service("retrieve", Json(params));
+                }
+                if (result) {
+                    if (result->is_array()) {
+                        const auto& arr = result->as_array();
+                        if (arr.empty()) {
+                            std::cout << "No retrieval hits.\n";
+                        }
+                        else {
+                            for (const auto& item : arr) {
+                                const auto& obj = item.as_object();
+                                std::string id = obj.count("document_id") ? obj.at("document_id").as_string() : "<no-id>";
+
+                                double score = 0.0;
+                                if (auto it = obj.find("score"); it != obj.end()) {
+                                    // Accept any arithmetic type or stringified number.
+                                    const auto& v = it->second.value(); // variant inside your Json
+                                    std::visit([&](const auto& x) {
+                                        using T = std::decay_t<decltype(x)>;
+                                        if constexpr (std::is_arithmetic_v<T>) {
+                                            score = static_cast<double>(x);
+                                        }
+                                        else if constexpr (std::is_same_v<T, std::string>) {
+                                            const char* begin = x.data();
+                                            const char* end = x.data() + x.size();
+                                            // try integer first (fast, no alloc)
+                                            long long ll = 0;
+                                            if (auto [p, ec] = std::from_chars(begin, end, ll); ec == std::errc{} && p == end) {
+                                                score = static_cast<double>(ll);
+                                            }
+                                            else {
+                                                // fallback: double parse
+                                                try { score = std::stod(x); }
+                                                catch (...) {}
+                                            }
+                                        }
+                                        // else: ignore non-numeric types
+                                        }, v);
+                                }
+
+                                std::cout << "- " << id << " (score: " << score << ")\n";
+                            }
+                        }
+                    }
+                    else if (result->is_object()) {
+                        const auto& obj = result->as_object();
+                        if (auto text = obj.find("text"); text != obj.end() && text->second.is_string()) {
+                            std::cout << text->second.as_string() << "\n";
+                        }
+                        else {
+                            std::cout << "Unexpected response format.\n";
+                        }
                     }
                     else {
-                        for (const auto& item : arr) {
-                            const auto& obj = item.as_object();
-                            std::string id = obj.count("document_id") ? obj.at("document_id").as_string() : "<no-id>";
-
-                            double score = 0.0;
-                            if (auto it = obj.find("score"); it != obj.end()) {
-                                // Accept any arithmetic type or stringified number.
-                                const auto& v = it->second.value(); // variant inside your Json
-                                std::visit([&](const auto& x) {
-                                    using T = std::decay_t<decltype(x)>;
-                                    if constexpr (std::is_arithmetic_v<T>) {
-                                        score = static_cast<double>(x);
-                                    }
-                                    else if constexpr (std::is_same_v<T, std::string>) {
-                                        const char* begin = x.data();
-                                        const char* end = x.data() + x.size();
-                                        // try integer first (fast, no alloc)
-                                        long long ll = 0;
-                                        if (auto [p, ec] = std::from_chars(begin, end, ll); ec == std::errc{} && p == end) {
-                                            score = static_cast<double>(ll);
-                                        }
-                                        else {
-                                            // fallback: double parse
-                                            try { score = std::stod(x); }
-                                            catch (...) {}
-                                        }
-                                    }
-                                    // else: ignore non-numeric types
-                                    }, v);
-                            }
-
-                            std::cout << "- " << id << " (score: " << score << ")\n";
-                        }
+                        std::cout << "Unexpected response format.\n";
                     }
                 }
                 else {
@@ -473,7 +535,9 @@ int main() {
                 params["batch"] = Json(batch);
 
                 if (!invoke_service_streaming("trainer.fit", Json(params))) {
-                    std::cout << "(no response)\n";
+                    if (!invoke_service_streaming("train", Json(params))) {
+                        std::cout << "(no response)\n";
+                    }
                 }
                 continue;
             }
@@ -486,9 +550,11 @@ int main() {
                 JsonObject params;
                 if (!name.empty()) params["name"] = Json(name);
 
-                // If your Service expects "hot-swap", change here:
-                // if (invoke_service("hot-swap", Json(params))) { ... }
-                if (invoke_service("admin.hot_swap", Json(params))) {
+                auto response = invoke_service("admin.hot_swap", Json(params));
+                if (!response) {
+                    response = invoke_service("hot-swap", Json(params));
+                }
+                if (response) {
                     if (name.empty()) std::cout << "Rolled back to previous adapter.\n";
                     else             std::cout << "Promoted adapter '" << name << "'.\n";
                 }
