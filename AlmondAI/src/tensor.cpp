@@ -1,4 +1,4 @@
-#include "../AlmondAI/include/almondai/tensor.hpp"
+#include "almondai/tensor.hpp"
 
 #include <random>
 #include <chrono>

@@ -1,4 +1,4 @@
-#include "../AlmondAI/include/almondai/tokenizer_word.hpp"
+#include "almondai/tokenizer_word.hpp"
 
 #include <locale>
 #include <algorithm>
@@ -214,6 +214,15 @@ std::string WordTokenizer::decode(const std::vector<int>& tokens) const {
         oss << word;
     }
     return oss.str();
+}
+
+int WordTokenizer::token_id(const std::string& token) const {
+    std::scoped_lock lock(m_mutex);
+    auto it = m_token_to_id.find(token);
+    if (it == m_token_to_id.end()) {
+        return -1;
+    }
+    return it->second;
 }
 
 void WordTokenizer::save_vocab(const std::string& path) const {

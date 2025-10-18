@@ -19,7 +19,7 @@ private:
     ContinuousLearner* m_learner;
     MCPBridge m_bridge;
 
-    Json handle_request(const MCPBridge::Request& request);
+    JsonObject handle_request(const MCPBridge::Request& request);
     void handle_trainer_fit(const MCPBridge::Request& request, std::ostream& out);
 };
 

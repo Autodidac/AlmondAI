@@ -1,4 +1,4 @@
-#include "../AlmondAI/include/almondai/train.hpp"
+#include "almondai/train.hpp"
 
 #include <algorithm>
 #include <iomanip>
@@ -6,6 +6,7 @@
 #include <sstream>
 #include <functional>
 #include <system_error>
+#include <fstream>
 
 namespace almondai {
 
@@ -14,6 +15,36 @@ const std::filesystem::path kTrainingDataPath{"data/training_data.jsonl"};
 const std::filesystem::path kSeedDataPath{"data/training_seed.jsonl"};
 const std::filesystem::path kVocabPath{"data/vocab.txt"};
 const std::filesystem::path kWeightsPath{"data/student_weights.json"};
+const std::filesystem::path kSeedTextPath{"data/seed.txt"};
+
+std::string ensure_seed_text() {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::create_directories(kSeedTextPath.parent_path(), ec);
+
+    bool need_default = true;
+    if (fs::exists(kSeedTextPath, ec) && !ec) {
+        const auto size = fs::file_size(kSeedTextPath, ec);
+        if (!ec && size > 0) {
+            need_default = false;
+        }
+    }
+
+    if (need_default) {
+        std::ofstream out(kSeedTextPath, std::ios::trunc);
+        out << "AlmondAI is a modular research assistant engineered to blend local learning, retrieval augmented generation, and safety controls in a compact runtime. "
+               "It keeps a vocabulary, curated examples, and adapters that can be hot-swapped without downtime. "
+               "Respond with a concise, friendly description of AlmondAI's purpose and subsystems.";
+    }
+
+    std::ifstream in(kSeedTextPath);
+    if (!in) {
+        return std::string();
+    }
+    std::ostringstream buffer;
+    buffer << in.rdbuf();
+    return buffer.str();
+}
 }
 
 ContinuousLearner::ContinuousLearner(StudentModel student,
@@ -183,6 +214,42 @@ void ContinuousLearner::load_persistent_data() {
     }
 
     load_samples_from_file(kTrainingDataPath);
+
+    if (m_training_data.empty()) {
+        const std::string seed_text = ensure_seed_text();
+        if (!seed_text.empty()) {
+            CuratedSample seed_sample;
+            seed_sample.prompt = "Introduce AlmondAI to a new user.";
+            seed_sample.teacher_output = seed_text;
+            seed_sample.constraints = Json(JsonObject{});
+            JsonObject provenance;
+            provenance["source"] = Json("seed");
+            provenance["prompt_hash"] = Json("seed::bootstrap");
+            seed_sample.provenance = Json(provenance);
+
+            const std::size_t before_vocab = m_tokenizer.vocab().size();
+            m_tokenizer.build_vocab({seed_sample.prompt, seed_sample.teacher_output});
+            if (m_tokenizer.vocab().size() > before_vocab) {
+                m_student.base().resize_vocab(m_tokenizer.vocab().size());
+            }
+
+            m_training_data.push_back(seed_sample);
+            if (m_eval_data.size() < 16) {
+                m_eval_data.push_back(seed_sample);
+            }
+
+            const std::size_t index = m_training_data.size() - 1;
+            const std::string document_id = derive_document_id(seed_sample, index);
+            if (!document_id.empty()) {
+                m_curator.mark_seen(document_id);
+                m_retrieval.ingest_document(document_id, seed_sample.teacher_output);
+            }
+
+            m_tokenizer.save_vocab(kVocabPath.string());
+            persist_sample(seed_sample);
+            train_step(seed_sample);
+        }
+    }
 }
 
 void ContinuousLearner::load_samples_from_file(const std::filesystem::path& path) {

@@ -1,15 +1,28 @@
-#include "../AlmondAI/include/almondai/serve.hpp"
+#include "almondai/serve.hpp"
+#include "almondai/fallback.hpp"
 
 #include <algorithm>
 #include <stdexcept>
 #include <functional>
+#include <iomanip>
+#include <cmath>
+#include <numeric>
+#include <random>
 #include <sstream>
+#include <limits>
 #include <variant>
 #include <type_traits>
 
 namespace almondai {
 
 namespace {
+
+struct DecodeSettings {
+    int min_tokens = 8;
+    int max_tokens = 128;
+    double temperature = 0.9;
+    double top_p = 0.95;
+};
 
 std::string compute_prompt_hash(const std::string& prompt) {
     std::hash<std::string> hasher;
@@ -28,6 +41,93 @@ std::string extract_string(const JsonObject& obj, const std::string& key) {
         return it->second.as_string();
     }
     return std::string{};
+}
+
+std::mt19937 make_rng() {
+    std::random_device rd;
+    return std::mt19937(rd());
+}
+
+int sample_token(const std::vector<double>& logits,
+                 const DecodeSettings& settings,
+                 std::size_t generated_tokens,
+                 int eos_token,
+                 std::mt19937& rng) {
+    if (logits.empty()) {
+        return 0;
+    }
+
+    const double temperature = std::max(settings.temperature, 1e-3);
+    std::vector<double> adjusted(logits.size());
+    std::transform(logits.begin(), logits.end(), adjusted.begin(), [temperature](double value) {
+        return value / temperature;
+    });
+    const double max_logit = *std::max_element(adjusted.begin(), adjusted.end());
+
+    std::vector<double> raw(logits.size());
+    double sum = 0.0;
+    for (std::size_t i = 0; i < adjusted.size(); ++i) {
+        const double value = std::exp(adjusted[i] - max_logit);
+        raw[i] = value;
+        sum += value;
+    }
+
+    if (generated_tokens < static_cast<std::size_t>(settings.min_tokens) && eos_token >= 0) {
+        const std::size_t eos_index = static_cast<std::size_t>(eos_token);
+        if (eos_index < raw.size()) {
+            sum -= raw[eos_index];
+            raw[eos_index] = 0.0;
+        }
+    }
+
+    if (sum <= 0.0) {
+        const auto it = std::max_element(logits.begin(), logits.end());
+        return static_cast<int>(std::distance(logits.begin(), it));
+    }
+
+    std::vector<double> probabilities(raw.size());
+    for (std::size_t i = 0; i < raw.size(); ++i) {
+        probabilities[i] = raw[i] / sum;
+    }
+
+    const double top_p = std::clamp(settings.top_p, 1e-3, 1.0);
+    std::vector<std::size_t> order(probabilities.size());
+    std::iota(order.begin(), order.end(), std::size_t{0});
+    std::sort(order.begin(), order.end(), [&](std::size_t lhs, std::size_t rhs) {
+        return probabilities[lhs] > probabilities[rhs];
+    });
+
+    double cumulative = 0.0;
+    std::vector<std::size_t> allowed;
+    allowed.reserve(order.size());
+    for (std::size_t index : order) {
+        cumulative += probabilities[index];
+        allowed.push_back(index);
+        if (cumulative >= top_p) {
+            break;
+        }
+    }
+    if (allowed.empty() && !order.empty()) {
+        allowed.push_back(order.front());
+    }
+
+    std::vector<double> weights;
+    weights.reserve(allowed.size());
+    double weight_sum = 0.0;
+    for (std::size_t index : allowed) {
+        const double weight = probabilities[index];
+        weights.push_back(weight);
+        weight_sum += weight;
+    }
+
+    if (weight_sum <= 0.0) {
+        const auto it = std::max_element(logits.begin(), logits.end());
+        return static_cast<int>(std::distance(logits.begin(), it));
+    }
+
+    std::discrete_distribution<std::size_t> distribution(weights.begin(), weights.end());
+    const std::size_t draw = distribution(rng);
+    return static_cast<int>(allowed[draw]);
 }
 
 std::string fetch_teacher_output(MCPBridge& bridge,
@@ -71,6 +171,66 @@ std::string ensure_prompt_hash(const JsonObject& params, const std::string& prom
     return compute_prompt_hash(prompt);
 }
 
+JsonArray build_retrieval_hits(const std::vector<RetrievalResult>& results) {
+    JsonArray hits;
+    for (const auto& item : results) {
+        JsonObject entry;
+        entry["document_id"] = Json(item.document_id);
+        entry["score"] = Json(item.score);
+        hits.emplace_back(Json(entry));
+    }
+    return hits;
+}
+
+std::string build_retrieval_context(const std::vector<RetrievalResult>& results, WordTokenizer& tokenizer) {
+    std::ostringstream oss;
+    bool first = true;
+    for (const auto& item : results) {
+        const std::string decoded = tokenizer.decode(item.tokens);
+        if (decoded.empty()) {
+            continue;
+        }
+        if (!first) {
+            oss << "\n\n";
+        }
+        first = false;
+        oss << "[Retrieved] " << decoded;
+    }
+    return oss.str();
+}
+
+std::string summarise_hits(const JsonArray& hits) {
+    if (hits.empty()) {
+        return "No retrieval hits.";
+    }
+    std::ostringstream oss;
+    for (const auto& entry : hits) {
+        if (!entry.is_object()) {
+            continue;
+        }
+        const auto& obj = entry.as_object();
+        std::string id;
+        double score = 0.0;
+        if (auto it = obj.find("document_id"); it != obj.end() && it->second.is_string()) {
+            id = it->second.as_string();
+        }
+        if (auto it = obj.find("score"); it != obj.end()) {
+            const auto& raw = it->second.value();
+            std::visit([&](const auto& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_arithmetic_v<T>) {
+                    score = static_cast<double>(value);
+                } else if constexpr (std::is_same_v<T, std::string>) {
+                    try { score = std::stod(value); } catch (...) {}
+                }
+            }, raw);
+        }
+        oss << "- " << (id.empty() ? std::string{"<unknown>"} : id)
+            << " (score: " << std::fixed << std::setprecision(3) << score << ")\n";
+    }
+    return oss.str();
+}
+
 } // namespace
 
 Service::Service(ContinuousLearner& learner, MCPBridge bridge)
@@ -82,82 +242,150 @@ void Service::run(std::istream& in, std::ostream& out) {
             if (request->method == "trainer.fit") {
                 handle_trainer_fit(*request, out);
             } else {
-                Json result = handle_request(*request);
-                m_bridge.send_response(out, request->id, result);
+                JsonObject payload = handle_request(*request);
+                m_bridge.send_response(out, request->id, Json(payload));
+                out.flush();
             }
         } catch (const std::exception& ex) {
             m_bridge.send_error(out, request->id, ex.what());
+            out.flush();
         }
     }
+    out.flush();
 }
 
-Json Service::handle_request(const MCPBridge::Request& request) {
+JsonObject Service::handle_request(const MCPBridge::Request& request) {
+    if (!m_learner) {
+        throw std::runtime_error("learner unavailable");
+    }
+
     if (request.method == "model.generate") {
         const auto& params = request.params.as_object();
         const std::string prompt = extract_string(params, "prompt");
-        auto retrieval = m_learner->retrieval().query(prompt);
+
+        DecodeSettings settings;
+        auto retrieval_results = m_learner->retrieval().query(prompt);
+        JsonArray hits = build_retrieval_hits(retrieval_results);
         std::string augmented = prompt;
-        for (const auto& item : retrieval) {
-            augmented += "\n" + m_learner->tokenizer().decode(item.tokens);
+        const std::string context = build_retrieval_context(retrieval_results, m_learner->tokenizer());
+        if (!context.empty()) {
+            if (!augmented.empty()) {
+                augmented += "\n\n";
+            }
+            augmented += context;
         }
-        auto tokens = m_learner->tokenizer().encode(augmented);
-        auto logits = m_learner->student().forward(tokens);
-        auto it = std::max_element(logits.begin(), logits.end());
-        int prediction = static_cast<int>(std::distance(logits.begin(), it));
-        std::vector<int> decoded{prediction};
-        std::string output = m_learner->tokenizer().decode(decoded);
+
+        std::vector<int> tokens = m_learner->tokenizer().encode(augmented);
+        std::vector<int> generated;
+        generated.reserve(settings.max_tokens);
+        std::mt19937 rng = make_rng();
+        const int eos_token = m_learner->tokenizer().token_id("<eos>");
+
+        for (int step = 0; step < settings.max_tokens; ++step) {
+            std::vector<double> logits = m_learner->student().forward(tokens);
+            int next = sample_token(logits, settings, generated.size(), eos_token, rng);
+            if (next == eos_token) {
+                if (generated.size() >= static_cast<std::size_t>(settings.min_tokens)) {
+                    break;
+                }
+                double best = std::numeric_limits<double>::lowest();
+                int fallback = -1;
+                for (std::size_t idx = 0; idx < logits.size(); ++idx) {
+                    if (static_cast<int>(idx) == eos_token) {
+                        continue;
+                    }
+                    if (logits[idx] > best) {
+                        best = logits[idx];
+                        fallback = static_cast<int>(idx);
+                    }
+                }
+                if (fallback >= 0) {
+                    next = fallback;
+                } else {
+                    break;
+                }
+            }
+            if (next == eos_token) {
+                break;
+            }
+            if (next < 0) {
+                break;
+            }
+            generated.push_back(next);
+            tokens.push_back(next);
+        }
+
+        std::string output = m_learner->tokenizer().decode(generated);
+        bool used_fallback = false;
+        if (output.empty()) {
+            JsonObject fb = fallback_response(prompt);
+            if (auto it = fb.find("output"); it != fb.end() && it->second.is_string()) {
+                output = it->second.as_string();
+            }
+            used_fallback = true;
+        }
+
         GovernorReport report = m_learner->governor().validate_output(output, Json());
-        JsonObject payload;
-        payload["output"] = Json(output);
-        JsonArray hits;
-        for (const auto& item : retrieval) {
-            JsonObject h;
-            h["document_id"] = Json(item.document_id);
-            h["score"] = Json(item.score);
-            hits.emplace_back(h);
-        }
-        payload["retrieval"] = Json(hits);
         JsonArray violations;
         for (const auto& violation : report.violations) {
             violations.emplace_back(Json(violation));
         }
+
+        JsonObject payload;
+        payload["output"] = Json(output);
+        payload["route"] = Json(used_fallback ? "fallback" : "local");
+        payload["prompt_hash"] = Json(compute_prompt_hash(prompt));
+        payload["tokens_generated"] = Json(static_cast<int>(generated.size()));
+        payload["retrieval"] = Json(hits);
+        payload["retrieval_summary"] = Json(summarise_hits(hits));
         payload["violations"] = Json(violations);
         payload["allowed"] = Json(report.allowed);
-        return Json(payload);
+        return payload;
     }
+
     if (request.method == "retrieval.query") {
         const auto& params = request.params.as_object();
         const std::string query = params.at("query").as_string();
         auto results = m_learner->retrieval().query(query);
-        JsonArray array;
-        for (const auto& item : results) {
-            JsonObject obj;
-            obj["document_id"] = Json(item.document_id);
-            obj["score"] = Json(item.score);
-            array.emplace_back(obj);
-        }
-        return Json(array);
+        JsonArray hits = build_retrieval_hits(results);
+        JsonObject payload;
+        payload["output"] = Json(summarise_hits(hits));
+        payload["hits"] = Json(hits);
+        return payload;
     }
+
     if (request.method == "compiler.build") {
         const auto& params = request.params.as_object();
-        JsonObject response;
+        JsonObject diagnostics;
         if (auto it = params.find("clang"); it != params.end() && it->second.is_string()) {
-            response["clang"] = parse_clang_diagnostics(it->second.as_string());
+            diagnostics["clang"] = parse_clang_diagnostics(it->second.as_string());
         }
         if (auto it = params.find("msbuild"); it != params.end() && it->second.is_string()) {
-            response["msbuild"] = parse_msbuild_log(it->second.as_string());
+            diagnostics["msbuild"] = parse_msbuild_log(it->second.as_string());
         }
-        return Json(response);
+        JsonObject payload;
+        payload["output"] = Json("Build diagnostics parsed.");
+        payload["diagnostics"] = Json(diagnostics);
+        return payload;
     }
+
     if (request.method == "admin.hot_swap") {
         const auto& params = request.params.as_object();
+        std::string message;
         if (auto it = params.find("name"); it != params.end() && it->second.is_string()) {
-            m_learner->promote_adapter(it->second.as_string());
+            const std::string name = it->second.as_string();
+            m_learner->promote_adapter(name);
+            message = "Promoted adapter '" + name + "'.";
         } else {
             m_learner->rollback_adapter();
+            message = "Rolled back to previous adapter.";
         }
-        return Json(JsonObject{{"status", Json("ok")}});
+        JsonObject payload;
+        payload["output"] = Json(message);
+        payload["status"] = Json("ok");
+        return payload;
     }
+
     if (request.method == "ingest.step") {
         const auto& params = request.params.as_object();
         const std::string prompt = extract_string(params, "prompt");
@@ -167,18 +395,21 @@ Json Service::handle_request(const MCPBridge::Request& request) {
             teacher_output = fetch_teacher_output(m_bridge, prompt, constraints);
         }
         const std::string hash = ensure_prompt_hash(params, prompt);
+
+        JsonObject payload;
         if (teacher_output.empty()) {
-            JsonObject response;
-            response["accepted"] = Json(false);
-            response["teacher_output"] = Json(teacher_output);
-            return Json(response);
+            payload["output"] = Json("Teacher response unavailable.");
+            payload["accepted"] = Json(false);
+            return payload;
         }
+
         auto curated = m_learner->ingest(prompt, teacher_output, constraints, hash);
-        JsonObject response;
-        response["accepted"] = Json(curated.has_value());
-        response["teacher_output"] = Json(teacher_output);
-        return Json(response);
+        payload["accepted"] = Json(curated.has_value());
+        payload["teacher_output"] = Json(teacher_output);
+        payload["output"] = Json(curated ? "Sample ingested." : "Sample rejected by curator.");
+        return payload;
     }
+
     if (request.method == "train.step") {
         const auto& params = request.params.as_object();
         const std::string prompt = extract_string(params, "prompt");
@@ -188,32 +419,43 @@ Json Service::handle_request(const MCPBridge::Request& request) {
             teacher_output = fetch_teacher_output(m_bridge, prompt, constraints);
         }
         const std::string hash = ensure_prompt_hash(params, prompt);
+
+        JsonObject payload;
         if (teacher_output.empty()) {
-            return Json(JsonObject{{"status", Json("teacher_unavailable")}});
+            payload["output"] = Json("Teacher model unavailable.");
+            payload["status"] = Json("teacher_unavailable");
+            return payload;
         }
+
         auto curated = m_learner->ingest(prompt, teacher_output, constraints, hash);
         if (!curated) {
-            return Json(JsonObject{{"status", Json("skipped")}});
+            payload["output"] = Json("Sample skipped by curator.");
+            payload["status"] = Json("skipped");
+            return payload;
         }
+
         TrainingStats stats = m_learner->train_step(*curated);
-        JsonObject response;
-        response["status"] = Json("trained");
-        response["loss"] = Json(stats.loss);
-        response["accuracy"] = Json(stats.accuracy);
-        response["adapter_norm"] = Json(stats.adapter_norm);
-        response["retrieval_hit_rate"] = Json(stats.retrieval_hit_rate);
-        response["teacher_output"] = Json(teacher_output);
-        return Json(response);
+        payload["output"] = Json("Training step completed.");
+        payload["status"] = Json("trained");
+        payload["loss"] = Json(stats.loss);
+        payload["accuracy"] = Json(stats.accuracy);
+        payload["adapter_norm"] = Json(stats.adapter_norm);
+        payload["retrieval_hit_rate"] = Json(stats.retrieval_hit_rate);
+        payload["teacher_output"] = Json(teacher_output);
+        return payload;
     }
+
     if (request.method == "eval.canary") {
         TrainingStats stats = m_learner->evaluate_canary();
-        JsonObject response;
-        response["loss"] = Json(stats.loss);
-        response["accuracy"] = Json(stats.accuracy);
-        response["adapter_norm"] = Json(stats.adapter_norm);
-        response["retrieval_hit_rate"] = Json(stats.retrieval_hit_rate);
-        return Json(response);
+        JsonObject payload;
+        payload["output"] = Json("Evaluation completed.");
+        payload["loss"] = Json(stats.loss);
+        payload["accuracy"] = Json(stats.accuracy);
+        payload["adapter_norm"] = Json(stats.adapter_norm);
+        payload["retrieval_hit_rate"] = Json(stats.retrieval_hit_rate);
+        return payload;
     }
+
     throw std::runtime_error("unknown method: " + request.method);
 }
 
@@ -280,15 +522,16 @@ void Service::handle_trainer_fit(const MCPBridge::Request& request, std::ostream
         final_step = step;
     });
 
-    JsonObject result;
-    result["final_loss"] = Json(final_loss);
-    result["steps"] = Json(final_step);
+    std::ostringstream summary;
+    summary << "Training complete (loss=" << std::fixed << std::setprecision(4) << final_loss
+            << ", steps=" << final_step << ")";
 
-    JsonObject response;
-    response["id"] = Json(request.id);
-    response["result"] = Json(result);
+    JsonObject payload;
+    payload["output"] = Json(summary.str());
+    payload["final_loss"] = Json(final_loss);
+    payload["steps"] = Json(final_step);
 
-    out << Json(response).dump() << '\n';
+    m_bridge.send_response(out, request.id, Json(payload));
     out.flush();
 }
 

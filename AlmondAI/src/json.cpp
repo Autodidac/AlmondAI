@@ -1,4 +1,4 @@
-#include "../AlmondAI/include/almondai/json.hpp"
+#include "almondai/json.hpp"
 
 #include <stdexcept>
 #include <iomanip>
