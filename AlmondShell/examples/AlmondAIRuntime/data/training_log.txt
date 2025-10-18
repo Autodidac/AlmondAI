@@ -1,16 +1,6 @@
 AlmondAI training log
 Each entry below records a single training or evaluation step in a human-readable format.
 
-AlmondAI training log
-Each entry below records a single training or evaluation step in a human-readable format.
-
-AlmondAI training log
-Each entry below records a single training or evaluation step in a human-readable format.
-
-Step 1 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.666055 | retrieval_hit_rate=0.000000
-AlmondAI training log
-Each entry below records a single training or evaluation step in a human-readable format.
-
 Step 1 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.650224 | retrieval_hit_rate=0.000000
 Step 2 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.650224 | retrieval_hit_rate=0.000000
 Step 3 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.650223 | retrieval_hit_rate=0.000000
@@ -62,3 +52,34 @@ Step 48 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.650090 | retrieval_
 Step 49 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.650086 | retrieval_hit_rate=1.000000
 Step 50 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.650081 | retrieval_hit_rate=1.000000
 Step 51 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.650077 | retrieval_hit_rate=1.000000
+AlmondAI training log
+Each entry below records a single training or evaluation step in a human-readable format.
+
+Step 1 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.638854 | retrieval_hit_rate=1.000000
+Step 2 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.638853 | retrieval_hit_rate=1.000000
+Step 3 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.638853 | retrieval_hit_rate=1.000000
+Step 4 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.638852 | retrieval_hit_rate=1.000000
+Step 5 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.638852 | retrieval_hit_rate=1.000000
+Step 6 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.638851 | retrieval_hit_rate=1.000000
+Step 7 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.638850 | retrieval_hit_rate=1.000000
+Step 8 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.638850 | retrieval_hit_rate=1.000000
+Step 9 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.638849 | retrieval_hit_rate=1.000000
+Step 10 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.638848 | retrieval_hit_rate=1.000000
+AlmondAI training log
+Each entry below records a single training or evaluation step in a human-readable format.
+
+Step 1 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.630845 | retrieval_hit_rate=0.000000
+Step 2 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.630844 | retrieval_hit_rate=0.000000
+Step 3 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.630843 | retrieval_hit_rate=0.000000
+Step 4 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.630842 | retrieval_hit_rate=0.000000
+Step 5 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.630841 | retrieval_hit_rate=0.000000
+Step 6 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.630840 | retrieval_hit_rate=0.000000
+Step 7 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.630839 | retrieval_hit_rate=0.000000
+Step 8 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.630838 | retrieval_hit_rate=0.000000
+Step 9 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.630836 | retrieval_hit_rate=0.000000
+Step 10 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.630835 | retrieval_hit_rate=0.000000
+AlmondAI training log
+Each entry below records a single training or evaluation step in a human-readable format.
+
+Step 1 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.649951 | retrieval_hit_rate=0.000000
+Step 2 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.649952 | retrieval_hit_rate=1.000000
