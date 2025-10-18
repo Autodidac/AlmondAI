@@ -15,9 +15,10 @@ ContinuousLearner::ContinuousLearner(StudentModel student,
       m_retrieval(m_tokenizer),
       m_evaluator(m_tokenizer),
       m_governor(std::move(governor)) {
-    m_log_file.open("data/training_log.csv", std::ios::app);
+    m_log_file.open("data/training_log.txt", std::ios::app);
     if (m_log_file.tellp() == 0) {
-        m_log_file << "step,loss,accuracy,adapter_norm,retrieval_hit_rate\n";
+        m_log_file << "AlmondAI training log\n";
+        m_log_file << "Each entry below records a single training or evaluation step in a human-readable format.\n\n";
     }
 }
 
@@ -106,11 +107,12 @@ void ContinuousLearner::log_stats(const TrainingStats& stats) {
     if (!m_log_file.is_open()) {
         return;
     }
-    m_log_file << stats.step << ','
-               << std::fixed << std::setprecision(6) << stats.loss << ','
-               << stats.accuracy << ','
-               << stats.adapter_norm << ','
-               << stats.retrieval_hit_rate << '\n';
+    m_log_file << "Step " << stats.step
+               << " | loss=" << std::fixed << std::setprecision(6) << stats.loss
+               << " | accuracy=" << stats.accuracy
+               << " | adapter_norm=" << stats.adapter_norm
+               << " | retrieval_hit_rate=" << stats.retrieval_hit_rate
+               << '\n';
 }
 
 } // namespace almondai
