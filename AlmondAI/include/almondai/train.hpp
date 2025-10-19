@@ -77,7 +77,6 @@ private:
     void load_samples_from_file(const std::filesystem::path& path);
     void persist_sample(const CuratedSample& sample);
     std::string derive_document_id(const CuratedSample& sample, std::size_t index) const;
-    void seed_vocab_from_english();
 };
 
 } // namespace almondai
