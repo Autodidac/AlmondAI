@@ -68,14 +68,25 @@ Continuous learning loop
    in training/eval buffers, updates the retrieval index, and writes the example
    to `data/training_data.jsonl`.
 2. **Training** – `train_step` tokenises the prompt/teacher pair, runs a forward
-   pass, computes a squared-error loss, applies gradients to the student (and
-   active adapter), records statistics, and persists the student weights to
-   `data/student_weights.json`.
+   pass, forms a target distribution from the teacher tokens, applies
+   cross-entropy against the student's softmax, backpropagates through the
+   projection layer (and any active adapter), records statistics, persists the
+   weights to `data/student_weights.json`, and mirrors the student's reply into
+   the curator's preference buffer.
 3. **Evaluation** – `evaluate_canary` reuses the evaluator and retrieval hit rate
    to produce health metrics logged alongside training stats.
 4. **Adapter lifecycle** – `promote_adapter`/`rollback_adapter` switch active
    adapters and keep the retrieval index aware of the swap so generations remain
    consistent.
+5. **Curation feedback** – Every accepted step records a positive (teacher) /
+   negative (student) pair so future preference learners can consume the data
+   even if the current stack only performs supervised updates.
+
+Teacher dataset lifecycle
+--------------------------
+* **Initial load** – On start-up the learner restores cached weights, vocabulary, training samples, and provenance hashes. When no prior data exists it copies `data/training_seed.jsonl`, synthesises a bootstrap introduction sample, backfills retrieval, and immediately runs a training step so fine-tuning resumes from a consistent baseline.
+* **Curated records** – Each accepted `CuratedSample` is appended to `data/training_data.jsonl` with four top-level fields: the `prompt`, the `teacher_output`, optional JSON `constraints`, and a provenance object containing the normalised teacher source, prompt hash, teacher hash, sample hash, and timestamp.
+* **Retrieval alignment** – Document identifiers derive from the provenance hashes so the retrieval index, curator "seen" set, and persisted records stay synchronised across restarts. Teacher responses populate the TF-IDF store and the training log tracks retrieval hit rate alongside loss/accuracy.
 
 Persistence and data files
 --------------------------
