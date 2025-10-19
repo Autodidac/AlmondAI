@@ -1,50 +1,53 @@
 # AlmondAI
 
-**AlmondAI** is a modular C++23 research runtime (migrating its previous C++20
-codebase toward full C++26 compliance) for iterating on lightweight
-language-model experiments. The project is evolving into a self-replicating,
-lock-step software engine paired with an "AI next door" co-processor that will
-eventually integrate directly into the runtime. The goal is to operate a
-self-updating LLM that analyses its own sources, siphons curated telemetry and
-external LLM transcripts, and applies scripted testing plus compiler debug
-feedback to continually improve.
+**AlmondAI** is a modular C++23 self-propagating creation engine engineered to
+spawn and wire up games, tools, and service bots that remain in lock-step with
+an embedded, AI-augmented co-processor. The codebase—actively migrating from
+its previous C++20 heritage toward full C++26 compliance—treats language-model
+reasoning as a first-class runtime dependency. The runtime studies its own
+sources, composes fresh injectors, and clones working subsystems into new
+targets while it siphons curated telemetry, external LLM transcripts, and
+compiler feedback loops to keep every replica improving between releases.
 
 ## Long-term Vision
 
-- 🔄 **Self-Improving Engine** – Continuous compiler-driven diagnostics and
-  scripted regression suites feed back into the runtime so it can iteratively
-  refine generated source while staying in sync with neighbouring AI services.
-- 🤖 **Integrated Companion AI** – A dedicated assistant process (the "AI next
-  door") will graduate into a first-class runtime component, sharing datasets,
-  training signals, and roadmap orchestration with AlmondAI.
-- 🧬 **Source-Aware Learning** – The learner aims to replicate and extend
-  high-quality codebases by analysing repositories end-to-end, harvesting
-  lessons from other LLM outputs, and promoting successful diffs automatically.
-- 🚀 **Standards Upgrade Path** – Ongoing modernization embraces C++23 features
-  today with a clear plan to unlock upcoming C++26 facilities as toolchains
-  mature.
+- 🧩 **Composable Replicators** – Every subsystem (rendering, simulation,
+  scripting, policy governance) can be exported as an injector bundle that the
+  runtime redeploys into fresh workspaces, seeding playable prototypes or
+  service bots with the same guardrails as the original host.
+- 🤖 **Resident Co-Processor** – The "AI next door" migrates from sidecar to
+  sovereign component, sharing context memory, roadmap cues, and mutation
+  pipelines while keeping transcripts synchronised across replicas.
+- 🧬 **Source-Aware Learning** – The learner continuously audits its own
+  artefacts, upstream dependencies, and captured LLM conversations to promote
+  working diffs, roll back regressions, and annotate the knowledge graph that
+  powers future injections.
+- 🚀 **Forward-Looking Standards** – The engine pushes into C++23/26 territory
+  with concepts, coroutines, and metaprogramming hooks that make the replicator
+  graph scriptable without sacrificing deterministic builds.
 
 ## Capabilities
 
-- 🚀 **Vocabulary & Tokenization** – `almondai::WordTokenizer` builds,
-  persists, and reloads vocabularies from plain text so datasets can be prepared
-  quickly across runs.
-- 🧠 **Adapter-aware Student Model** – `almondai::StudentModel` combines a
-  configurable decoder with `almondai::AdapterManager` so adapters can be
-  registered, promoted, or rolled back on the fly.
-- 🔁 **Continuous Learning Loop** – `almondai::ContinuousLearner` coordinates
-  ingestion, retrieval, evaluation, and policy governance to keep interactive
-  services fresh while logging statistics to disk, including auto-training on
-  high-quality remote transcripts when a teacher is trusted.
-- 📚 **Retrieval Augmentation** – `almondai::RetrievalIndex` tracks curated
-  samples and exposes TF-IDF search so inference requests can consult the most
-  relevant history.
-- 🌐 **Model Context Protocol Bridge** – `almondai::Service` pairs the learner
-  with an `almondai::MCPBridge`, handling `train.step`, `ingest.step`, and
-  `gpt.generate` requests over standard I/O.
-- 🤝 **External Teachers** – Chat backends defined in `almondai::chat` let the
-  runtime call OpenAI-compatible APIs, OpenRouter, Together AI, or other REST
-  providers when a request omits `teacher_output`.
+- 🧪 **Injector Recipes** – `almondai::WordTokenizer`, dataset normalisers, and
+  curriculum scripts package into reproducible recipes that new replicas can
+  replay before they spawn their own services.
+- 🧠 **Adapter-Savvy Student Model** – `almondai::StudentModel` and
+  `almondai::AdapterManager` co-manage decoder weights so replicators can test,
+  promote, or retire behaviours without dropping the control plane.
+- 🔁 **Self-Calibration Loop** – `almondai::ContinuousLearner` orchestrates
+  ingestion, retrieval, evaluation, and policy governance with telemetry hooks
+  that feed back into the mutation planner driving the next wave of injections.
+- 📚 **Retrieval-Backed Memory** – `almondai::RetrievalIndex` curates history
+  with TF-IDF and semantic tags, letting each replica spin up with the most
+  relevant narratives and operating procedures.
+- 🌐 **Model Context Protocol Bridge** – `almondai::Service` fronts the MCP
+  interface so automation can issue `train.step`, `ingest.step`, and
+  `gpt.generate` commands while the co-processor streams checkpoints and
+  mutation notes.
+- 🤝 **Teacher Federation** – Providers in `almondai::chat` keep the runtime
+  multilingual and multi-backend, routing through OpenAI-compatible APIs,
+  OpenRouter, Together AI, and other REST teachers while tagging transcripts for
+  downstream replicas.
 
 ## Repository Layout
 
