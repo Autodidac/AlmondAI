@@ -72,10 +72,26 @@ int main() {
     PolicyGovernor governor;
     governor.set_blocklist({ "forbidden", "classified" });
 
+    auto load_status_logger = [](const LoadStatus& status) {
+        std::cout << "[engine] " << status.phase;
+        if (!status.detail.empty()) {
+            std::cout << ": " << status.detail;
+        }
+        if (status.total > 0) {
+            std::cout << " (" << status.completed << '/' << status.total << ')';
+        }
+        else if (status.completed > 0) {
+            std::cout << " (" << status.completed << ')';
+        }
+        std::cout << '\n';
+        std::cout.flush();
+    };
+
     ContinuousLearner learner(std::move(student),
         std::move(adapter_manager),
         std::move(tokenizer),
-        std::move(governor));
+        std::move(governor),
+        load_status_logger);
     learner.promote_adapter("default");
 
     MCPBridge bridge;

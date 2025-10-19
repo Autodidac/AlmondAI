@@ -15,6 +15,7 @@
 #include <numeric>
 #include <unordered_map>
 #include <unordered_set>
+#include <string_view>
 
 namespace almondai {
 
@@ -249,13 +250,15 @@ void ensure_seed_samples() {
 ContinuousLearner::ContinuousLearner(StudentModel student,
                                      AdapterManager adapters,
                                      WordTokenizer tokenizer,
-                                     PolicyGovernor governor)
+                                     PolicyGovernor governor,
+                                     LoadStatusCallback load_callback)
     : m_student(std::move(student)),
       m_adapters(std::move(adapters)),
       m_tokenizer(std::move(tokenizer)),
       m_retrieval(m_tokenizer),
       m_evaluator(m_tokenizer),
-      m_governor(std::move(governor)) {
+      m_governor(std::move(governor)),
+      m_load_status_callback(std::move(load_callback)) {
     m_log_file.open("data/training_log.txt", std::ios::app);
     if (m_log_file.tellp() == 0) {
         m_log_file << "AlmondAI training log\n";
@@ -631,77 +634,62 @@ void ContinuousLearner::log_stats(const TrainingStats& stats) {
 void ContinuousLearner::load_persistent_data() {
     namespace fs = std::filesystem;
     std::error_code ec;
+
+    report_load_status("initializing", "Ensuring data directories exist");
     fs::create_directories(kTrainingDataPath.parent_path(), ec);
 
+    report_load_status("seeds", "Verifying seed curriculum");
     ensure_seed_samples();
 
     if (fs::exists(kWeightsPath)) {
-        m_student.base().load_weights(kWeightsPath.string());
+        report_load_status("weights", "Loading student weights");
+        const bool loaded = m_student.base().load_weights(kWeightsPath.string());
+        report_load_status("weights", loaded ? "Student weights loaded" : "Failed to load student weights");
+    } else {
+        report_load_status("weights", "No persisted student weights found");
     }
 
     if (!fs::exists(kTrainingDataPath) && fs::exists(kSeedDataPath)) {
+        report_load_status("seeds", "Initialising training data from seed set");
         fs::copy_file(kSeedDataPath, kTrainingDataPath, fs::copy_options::overwrite_existing, ec);
     }
 
-    load_samples_from_file(kTrainingDataPath);
+    auto count_samples = [](const fs::path& path) -> std::size_t {
+        if (!fs::exists(path)) {
+            return 0;
+        }
+        std::ifstream in(path);
+        if (!in) {
+            return 0;
+        }
+        std::size_t count = 0;
+        std::string line;
+        while (std::getline(in, line)) {
+            if (!line.empty()) {
+                ++count;
+            }
+        }
+        return count;
+    };
+
+    const std::size_t total_samples = count_samples(kTrainingDataPath);
+    if (total_samples > 0) {
+        report_load_status("samples", "Loading persisted training samples", 0, total_samples);
+    } else {
+        report_load_status("samples", "No persisted samples found", 0, 0);
+    }
+
+    load_samples_from_file(kTrainingDataPath, total_samples);
+
+    if (!m_training_data.empty()) {
+        std::ostringstream detail;
+        detail << "Loaded " << m_training_data.size() << " samples from disk";
+        report_load_status("samples", detail.str(), m_training_data.size(),
+                           total_samples == 0 ? m_training_data.size() : total_samples);
+    }
 
     if (m_training_data.empty()) {
         const std::string seed_text = ensure_seed_text();
-
-        auto register_seed_sample = [&](const std::string& prompt,
-                                        const std::string& teacher_output,
-                                        const std::string& prompt_hash) {
-            if (prompt.empty() || teacher_output.empty()) {
-                return;
-            }
-
-            CuratedSample sample;
-            sample.prompt = prompt;
-            sample.teacher_output = teacher_output;
-            sample.constraints = Json(JsonObject{});
-            JsonObject provenance;
-            provenance["source"] = Json("seed");
-            provenance["prompt_hash"] = Json(prompt_hash);
-            provenance["teacher_hash"] = Json(std::to_string(std::hash<std::string>{}(sample.teacher_output)));
-            sample.provenance = Json(provenance);
-
-            const std::size_t before_vocab = m_tokenizer.vocab().size();
-            m_tokenizer.build_vocab({sample.prompt, sample.teacher_output});
-            if (m_tokenizer.vocab().size() > before_vocab) {
-                m_student.base().resize_vocab(m_tokenizer.vocab().size());
-            }
-
-            m_training_data.push_back(sample);
-            CuratedSample& stored = m_training_data.back();
-            m_curator.register_curated(stored);
-            if (m_eval_data.size() < 16) {
-                m_eval_data.push_back(stored);
-            }
-            const std::size_t index = m_training_data.size() - 1;
-            const std::string document_id = derive_document_id(stored, index);
-            if (!document_id.empty()) {
-                if (stored.provenance.is_object()) {
-                    stored.provenance.as_object()["sample_hash"] = Json(document_id);
-                }
-                std::string retrieval_text = stored.prompt;
-                if (!retrieval_text.empty() && !stored.teacher_output.empty()) {
-                    retrieval_text.append("\n\n");
-                }
-                retrieval_text.append(stored.teacher_output);
-                m_retrieval.ingest_document(document_id, retrieval_text);
-                m_document_to_index[document_id] = index;
-            }
-
-            m_tokenizer.save_vocab(kVocabPath.string());
-            persist_sample(stored);
-            train_step(stored);
-        };
-
-        if (!seed_text.empty()) {
-            register_seed_sample("Introduce AlmondAI to a new user.",
-                                 seed_text,
-                                 "seed::bootstrap");
-        }
 
         struct SeedSpec {
             const char* prompt;
@@ -778,21 +766,140 @@ void ContinuousLearner::load_persistent_data() {
              "seed::greeting::goodbye"}
         };
 
+        std::size_t seed_total = greeting_samples.size();
+        if (!seed_text.empty()) {
+            ++seed_total;
+        }
+
+        if (seed_total > 0) {
+            report_load_status("seeds", "Bootstrapping seed curriculum", 0, seed_total);
+        } else {
+            report_load_status("seeds", "No seed curriculum available", 0, 0);
+        }
+
+        std::size_t seed_completed = 0;
+        auto register_seed_sample = [&](const std::string& prompt,
+                                        const std::string& teacher_output,
+                                        const std::string& prompt_hash) {
+            if (prompt.empty() || teacher_output.empty()) {
+                return;
+            }
+
+            CuratedSample sample;
+            sample.prompt = prompt;
+            sample.teacher_output = teacher_output;
+            sample.constraints = Json(JsonObject{});
+            JsonObject provenance;
+            provenance["source"] = Json("seed");
+            provenance["prompt_hash"] = Json(prompt_hash);
+            provenance["teacher_hash"] = Json(std::to_string(std::hash<std::string>{}(sample.teacher_output)));
+            sample.provenance = Json(provenance);
+
+            const std::size_t before_vocab = m_tokenizer.vocab().size();
+            m_tokenizer.build_vocab({sample.prompt, sample.teacher_output});
+            if (m_tokenizer.vocab().size() > before_vocab) {
+                m_student.base().resize_vocab(m_tokenizer.vocab().size());
+            }
+
+            m_training_data.push_back(sample);
+            CuratedSample& stored = m_training_data.back();
+            m_curator.register_curated(stored);
+            if (m_eval_data.size() < 16) {
+                m_eval_data.push_back(stored);
+            }
+            const std::size_t index = m_training_data.size() - 1;
+            const std::string document_id = derive_document_id(stored, index);
+            if (!document_id.empty()) {
+                if (stored.provenance.is_object()) {
+                    stored.provenance.as_object()["sample_hash"] = Json(document_id);
+                }
+                std::string retrieval_text = stored.prompt;
+                if (!retrieval_text.empty() && !stored.teacher_output.empty()) {
+                    retrieval_text.append("\n\n");
+                }
+                retrieval_text.append(stored.teacher_output);
+                m_retrieval.ingest_document(document_id, retrieval_text);
+                m_document_to_index[document_id] = index;
+            }
+
+            m_tokenizer.save_vocab(kVocabPath.string());
+            persist_sample(stored);
+            train_step(stored);
+
+            ++seed_completed;
+            if (seed_total > 0) {
+                std::ostringstream detail;
+                detail << "Registered seed sample " << seed_completed << " of " << seed_total;
+                if (!prompt_hash.empty()) {
+                    detail << " (" << prompt_hash << ")";
+                }
+                report_load_status("seeds", detail.str(), seed_completed, seed_total);
+            }
+        };
+
+        if (!seed_text.empty()) {
+            register_seed_sample("Introduce AlmondAI to a new user.",
+                                 seed_text,
+                                 "seed::bootstrap");
+        }
+
         for (const auto& sample : greeting_samples) {
             register_seed_sample(sample.prompt, sample.teacher_output, sample.prompt_hash);
         }
+
+        if (seed_total > 0) {
+            report_load_status("seeds", "Seed curriculum loaded", seed_completed, seed_total);
+        }
     }
+
+    report_load_status("ready", "Learner initialisation complete", m_training_data.size(), m_training_data.size());
 }
 
-void ContinuousLearner::load_samples_from_file(const std::filesystem::path& path) {
+void ContinuousLearner::load_samples_from_file(const std::filesystem::path& path,
+                                               std::size_t total_samples_hint) {
     if (!std::filesystem::exists(path)) {
+        report_load_status("samples", "Training data file not found", 0, total_samples_hint);
         return;
     }
     std::ifstream file(path);
     if (!file) {
+        report_load_status("samples", "Failed to open training data file", 0, total_samples_hint);
         return;
     }
     std::string line;
+    std::size_t loaded = 0;
+    std::size_t last_reported = 0;
+    const std::size_t step = total_samples_hint > 0
+        ? std::max<std::size_t>(std::size_t{1}, total_samples_hint / 10)
+        : std::size_t{25};
+    auto notify_progress = [&](bool force) {
+        if (!m_load_status_callback) {
+            return;
+        }
+        if (!force) {
+            if (loaded == 0) {
+                return;
+            }
+            if (total_samples_hint > 0) {
+                if (loaded < last_reported + step) {
+                    return;
+                }
+            } else {
+                if (loaded % step != 0) {
+                    return;
+                }
+            }
+        }
+        last_reported = loaded;
+        std::ostringstream detail;
+        detail << "Loaded " << loaded;
+        if (total_samples_hint > 0) {
+            detail << " / " << total_samples_hint;
+        }
+        detail << " persisted samples";
+        report_load_status("samples", detail.str(), loaded, total_samples_hint);
+    };
+
     while (std::getline(file, line)) {
         if (line.empty()) {
             continue;
@@ -834,8 +941,17 @@ void ContinuousLearner::load_samples_from_file(const std::filesystem::path& path
                 m_retrieval.ingest_document(fallback_id, retrieval_text);
                 m_document_to_index[fallback_id] = index;
             }
+            ++loaded;
+            notify_progress(false);
         }
     }
+
+    if (loaded == 0) {
+        report_load_status("samples", "No persisted samples were ingested", 0, total_samples_hint);
+    } else {
+        notify_progress(true);
+    }
+
     if (!m_training_data.empty()) {
         m_tokenizer.save_vocab(kVocabPath.string());
     }
@@ -851,6 +967,10 @@ const CuratedSample* ContinuousLearner::recall_sample(const std::string& documen
         return nullptr;
     }
     return &m_training_data[index];
+}
+
+void ContinuousLearner::set_load_status_callback(LoadStatusCallback callback) {
+    m_load_status_callback = std::move(callback);
 }
 
 void ContinuousLearner::persist_sample(const CuratedSample& sample) {
@@ -895,6 +1015,21 @@ std::string ContinuousLearner::derive_document_id(const CuratedSample& sample, s
     std::ostringstream oss;
     oss << "sample:" << index << ':' << hasher(sample.prompt + sample.teacher_output);
     return oss.str();
+}
+
+void ContinuousLearner::report_load_status(std::string_view phase,
+                                           std::string_view detail,
+                                           std::size_t completed,
+                                           std::size_t total) {
+    if (!m_load_status_callback) {
+        return;
+    }
+    LoadStatus status;
+    status.phase = std::string(phase);
+    status.detail = std::string(detail);
+    status.completed = completed;
+    status.total = total;
+    m_load_status_callback(status);
 }
 
 } // namespace almondai
