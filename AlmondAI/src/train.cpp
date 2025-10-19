@@ -86,6 +86,71 @@ std::string ensure_seed_text() {
     buffer << in.rdbuf();
     return buffer.str();
 }
+
+void ensure_seed_samples() {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::create_directories(kSeedDataPath.parent_path(), ec);
+
+    bool need_default = true;
+    if (fs::exists(kSeedDataPath, ec) && !ec) {
+        const auto size = fs::file_size(kSeedDataPath, ec);
+        if (!ec && size > 0) {
+            need_default = false;
+        }
+    }
+
+    if (!need_default) {
+        return;
+    }
+
+    const std::string seed_text = ensure_seed_text();
+    const std::string introduction = seed_text.empty()
+        ? std::string{
+              "AlmondAI is a modular research assistant that pairs retrieval augmented generation with on-device learning. "
+              "It maintains adapters, curated examples, and a tokenizer so it can resume improving after restarts."}
+        : seed_text;
+
+    std::ofstream out(kSeedDataPath, std::ios::trunc);
+    if (!out) {
+        return;
+    }
+
+    auto emit_sample = [&out](const std::string& prompt,
+                              const std::string& teacher_output,
+                              const std::string& prompt_hash) {
+        JsonObject provenance;
+        provenance["source"] = Json("seed");
+        provenance["prompt_hash"] = Json(prompt_hash);
+        provenance["teacher_hash"] = Json(std::to_string(std::hash<std::string>{}(teacher_output)));
+
+        JsonObject sample;
+        sample["prompt"] = Json(prompt);
+        sample["teacher_output"] = Json(teacher_output);
+        sample["constraints"] = Json(JsonObject{});
+        sample["provenance"] = Json(provenance);
+
+        out << Json(sample).dump() << '\n';
+    };
+
+    emit_sample("Introduce AlmondAI to a new teammate and describe its design pillars.",
+                introduction,
+                "seed::introduction");
+
+    emit_sample("How does AlmondAI preserve its learning progress between sessions?",
+                "AlmondAI writes curated examples to data/training_data.jsonl, records a running training log in data/"
+                "training_log.txt, persists tokenizer vocabulary in data/vocab.txt, and saves decoder weights in data/"
+                "student_weights.json. These artifacts let the learner restore adapters, retrieval indices, and vocab so "
+                "fine-tuning can resume immediately after a restart.",
+                "seed::persistence_overview");
+
+    emit_sample("Explain how AlmondAI curates and reuses training samples during continuous learning.",
+                "Every approved prompt/response pair is normalised by the curator, appended to data/training_data.jsonl, "
+                "indexed for retrieval, and optionally reserved as evaluation data. When new training begins, the learner "
+                "replays these curated samples so adapters and vocabularies stay aligned with the model's production "
+                "experience.",
+                "seed::curation_cycle");
+}
 }
 
 ContinuousLearner::ContinuousLearner(StudentModel student,
@@ -378,6 +443,8 @@ void ContinuousLearner::load_persistent_data() {
     namespace fs = std::filesystem;
     std::error_code ec;
     fs::create_directories(kTrainingDataPath.parent_path(), ec);
+
+    ensure_seed_samples();
 
     if (fs::exists(kWeightsPath)) {
         m_student.base().load_weights(kWeightsPath.string());
