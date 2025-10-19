@@ -1,107 +1,118 @@
 # AlmondAI
 
-**AlmondAI** is a modular C++20 research runtime for serving and iterating on
-lightweight language models. It bundles tokenizer utilities, adapter-aware model
-primitives, streaming inference, and online learning helpers so experiments can
-move from notebooks to production-style services without rebuilding the
-infrastructure every time.
+**AlmondAI** is a modular C++20 research runtime for iterating on lightweight
+language-model experiments. The library exposes tokenizer tooling, adapter-aware
+decoder primitives, retrieval utilities, and an MCP-facing service loop so
+experiments can move from notebooks to long-running services without rebuilding
+the scaffolding each time.
 
-## Highlights
+## Capabilities
 
-- 🚀 **Tokenizer and Vocabulary Tooling** – `almondai::WordTokenizer` can build,
-  persist, and reload vocabularies from plain text so datasets can be prepared
-  in minutes.
-- 🧠 **Adapter-Aware Models** – `almondai::BaseDecoder` and
-  `almondai::AdapterManager` make it easy to register LoRA-style adapters,
-  switch them on the fly, and keep per-adapter statistics up to date.
-- 🔁 **Continuous Learning Loop** – `almondai::ContinuousLearner` coordinates the
-  student model, adapter manager, tokenizer, and safety governor to keep
-  long-running services fresh without sacrificing guardrails.
-- 🌐 **MCP Bridge Integration** – `almondai::Service` combines the learner with
-  an `almondai::MCPBridge` so inference requests can flow over the Model Context
-  Protocol using the same parsing utilities that power the CLI sample.
-- 🧩 **Composable Utilities** – Headers in `include/almondai/` cover tensor
-  helpers, retrieval primitives, training utilities, policy governance, and
-  JSON/MCP helpers. Each component is standalone and can be mixed into existing
-  projects.
+- 🚀 **Vocabulary & Tokenization** – `almondai::WordTokenizer` builds,
+  persists, and reloads vocabularies from plain text so datasets can be prepared
+  quickly across runs.
+- 🧠 **Adapter-aware Student Model** – `almondai::StudentModel` combines a
+  configurable decoder with `almondai::AdapterManager` so adapters can be
+  registered, promoted, or rolled back on the fly.
+- 🔁 **Continuous Learning Loop** – `almondai::ContinuousLearner` coordinates
+  ingestion, retrieval, evaluation, and policy governance to keep interactive
+  services fresh while logging statistics to disk.
+- 📚 **Retrieval Augmentation** – `almondai::RetrievalIndex` tracks curated
+  samples and exposes TF-IDF search so inference requests can consult the most
+  relevant history.
+- 🌐 **Model Context Protocol Bridge** – `almondai::Service` pairs the learner
+  with an `almondai::MCPBridge`, handling `train.step`, `ingest.step`, and
+  `gpt.generate` requests over standard I/O.
+- 🤝 **External Teachers** – Chat backends defined in `almondai::chat` let the
+  runtime call OpenAI-compatible APIs, OpenRouter, Together AI, or other REST
+  providers when a request omits `teacher_output`.
 
 ## Repository Layout
 
 ```
 .
-├── AlmondAI.sln                      # Visual Studio solution (Windows)
-├── AlmondShell/                      # MSVC projects and legacy engine assets
-│   └── examples/
-│       ├── AlmondAIEngine/          # Static library wrapper for shared items
-│       └── AlmondAIRuntime/         # Console sample linked against the engine
-├── CMakeLists.txt                    # Cross-platform build script
-├── include/almondai/                # Public headers
-├── src/                              # Library implementation and sample entry
-├── data/                             # Runtime data such as vocabularies
-├── Images/                           # Ancillary artwork (unused by default)
-├── LICENSE                           # LicenseRef-MIT-NoSell terms
-└── README.md                         # Project overview (this file)
+├── AlmondAI/                     # Cross-platform library (headers + sources)
+│   ├── include/almondai/         # Public headers for runtime components
+│   └── src/                      # Library implementation
+├── AlmondAI.sln                  # Visual Studio solution (ships sample runtime)
+├── AlmondShell/                  # MSVC project files and console demo entrypoint
+├── CMakeLists.txt                # Builds the static lib with CMake
+├── data/                         # Persistent state (vocab, seeds, logs, weights)
+├── Changes                       # Project change log
+├── LICENSE                       # LicenseRef-MIT-NoSell terms
+└── README.md                     # Project overview (this file)
 ```
 
-Legacy engine headers and scripts remain under `AlmondShell/` for developers who
-need the shared MSBuild items; the primary AlmondAI runtime lives in
-`include/almondai/` and `src/`.
+## Building the Library (CMake)
 
-## Building
-
-### Cross-platform (CMake + Ninja/MSBuild)
+AlmondAI depends on a C++20 toolchain and libcurl. To produce the static library:
 
 ```bash
 git clone https://github.com/Autodidac/AlmondAI.git
 cd AlmondAI
-cmake -B build -S . -G Ninja  # or "Visual Studio 17 2022"
-cmake --build build
+cmake -B build -S . -G Ninja   # or any generator you prefer
+cmake --build build            # emits libalmondai.a / almondai.lib
 ```
 
-The default target builds the console sample defined in `src/main.cpp`, which
-runs the MCP-enabled service loop.
+The library installs headers under `AlmondAI/include` and can be linked into
+another application that provides an MCP host or CLI.
 
-### Visual Studio 2022
+## Visual Studio Console Runtime
 
-1. Open `AlmondAI.sln`.
-2. Build the **AlmondAIEngine** static library target.
-3. Build and run **AlmondAIRuntime** to launch the console harness.
+Windows developers can open `AlmondAI.sln` and build the
+**AlmondAIEngine** (static library) followed by **AlmondAIRuntime**. The runtime
+project hosts the interactive console located at
+`AlmondShell/examples/AlmondAIRuntime/main.cpp`, wiring together:
 
-Both projects import the shared `Engine.vcxitems` items, and the runtime target
-links against the static library output located in `$(SolutionDir)\x64\$(Configuration)`.
+- vocabulary bootstrap from `data/vocab.txt`
+- the default `ContinuousLearner` instance
+- optional external chat backends (see below)
 
-## Running the Sample Service
+Launch the resulting binary from the repository root so it can access the
+`data/` directory.
 
-The runtime expects a vocabulary file at `data/vocab.txt`. On first launch the
-sample will generate the file automatically using `WordTokenizer::save_vocab`.
-Subsequent runs reload the vocabulary, configure a `StudentModel`, register a
-`default` adapter, and expose the inference loop via `Service::run` over standard
-I/O.
+## Runtime Data & Persistence
 
-### Teacher Integration and Seeding
+The learner keeps several artifacts in `data/`:
 
-`data/training_seed.jsonl` ships with three example prompts so the learner has
-initial vocabulary coverage and retrieval documents. When `almondai_app` starts it
-loads those seeds, copies them into `data/training_data.jsonl`, and reloads any
-previously saved weights from `data/student_weights.json`.
+- `training_seed.jsonl` – starter prompts copied into
+  `training_data.jsonl` on first run
+- `training_data.jsonl` – curated samples ingested during operation
+- `training_log.txt` – human-readable metrics per training/evaluation step
+- `student_weights.json` – serialized decoder weights
+- `vocab.txt` – tokenizer vocabulary
+- `seed.txt` – description prompt used when seeding the teacher
 
-If you omit `teacher_output` from `train.step` or `ingest.step` requests the
-runtime calls an external GPT endpoint using the credentials described in
-[`docs/GPT_SETUP.md`](docs/GPT_SETUP.md). To plug in alternative providers (for
-example OpenRouter, Hugging Face Inference, or a self-hosted Rasa instance) set
-the environment variables documented in
-[`docs/TEACHER_BACKENDS.md`](docs/TEACHER_BACKENDS.md) and, optionally, tag
-manually-supplied supervision with a `teacher_source` label. Successful training
-steps append the curated example to `data/training_data.jsonl` and persist the
-updated weights so subsequent runs resume from the latest state.
+These files are created automatically if they do not exist.
+
+## Teacher & Chat Backends
+
+When a `train.step` or `ingest.step` request omits `teacher_output`, the service
+can call an external model. Configure the backend with environment variables
+before launching the runtime:
+
+- `ALMONDAI_CHAT_KIND` – selects the provider (`OpenAICompat`, `OpenRouter`,
+  `TogetherAI`, `DeepInfra`, `HuggingFace`, etc.)
+- `ALMONDAI_ENDPOINT` – provider-specific HTTP endpoint
+- `ALMONDAI_MODEL` – remote model identifier
+- `ALMONDAI_API_KEY` – credential used by the chat backend
+
+For OpenAI-compatible teachers the helper in
+[`AlmondAI/docs/GPT_SETUP.md`](AlmondAI/docs/GPT_SETUP.md) also honors:
+
+- `ALMONDAI_GPT_API_KEY`
+- `ALMONDAI_GPT_ENDPOINT` (defaults to `https://api.openai.com/v1/chat/completions`)
+- `ALMONDAI_GPT_MODEL` (defaults to `gpt-4o-mini`)
+
+See [`AlmondAI/docs/TEACHER_BACKENDS.md`](AlmondAI/docs/TEACHER_BACKENDS.md) for
+notes on supported providers and response formats.
 
 ## Contributing
 
-"We Are Not Accepting PRs At This Time" as AlmondAI is a source-available
-commercial project. For substantial changes please open an issue first.
+AlmondAI is a source-available commercial project and is not accepting external
+pull requests. Please open an issue to discuss substantial changes.
 
 ## License
 
-AlmondAI is distributed under the `LicenseRef-MIT-NoSell` license. See
-[`LICENSE`](LICENSE) for the complete terms, including the non-commercial usage
-requirements.
+The project is distributed under `LicenseRef-MIT-NoSell`. Refer to the
+[`LICENSE`](LICENSE) file for the complete, non-commercial usage terms.
