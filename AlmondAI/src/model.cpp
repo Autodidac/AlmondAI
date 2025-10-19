@@ -76,6 +76,7 @@ BaseDecoder::BaseDecoder(ModelConfig config) : m_config(config) {
 BaseDecoder::ForwardResult BaseDecoder::forward(const std::vector<int>& tokens) const {
     ForwardResult result;
     result.hidden.assign(m_config.hidden_size, 0.0);
+    result.pre_adapter_hidden.assign(m_config.hidden_size, 0.0);
     result.logits.assign(m_config.vocab_size, 0.0);
 
     if (tokens.empty()) {
@@ -100,8 +101,10 @@ BaseDecoder::ForwardResult BaseDecoder::forward(const std::vector<int>& tokens) 
         result.hidden = forward_layer(layer, result.hidden);
     }
 
+    result.pre_adapter_hidden = result.hidden;
+
     if (m_active_adapter != nullptr) {
-        const std::vector<double> delta = m_active_adapter->project(result.hidden);
+        const std::vector<double> delta = m_active_adapter->project(result.pre_adapter_hidden);
         for (std::size_t i = 0; i < result.hidden.size(); ++i) {
             result.hidden[i] += delta[i];
         }

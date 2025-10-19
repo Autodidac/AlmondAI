@@ -303,6 +303,7 @@ TrainingStats ContinuousLearner::train_step(const CuratedSample& sample) {
     auto forward = m_student.forward(tokens);
     const auto& logits = forward.logits;
     const auto& hidden = forward.hidden;
+    const auto& pre_adapter_hidden = forward.pre_adapter_hidden;
 
     auto teacher_tokens = m_tokenizer.encode(sample.teacher_output);
     std::unordered_map<int, double> token_counts;
@@ -362,8 +363,8 @@ TrainingStats ContinuousLearner::train_step(const CuratedSample& sample) {
         grad_hidden = m_student.update(hidden, grad_logits);
     }
     if (Adapter* active = m_adapters.active_adapter()) {
-        active->apply_gradient(grad_hidden);
-        active->update_statistics(grad_hidden);
+        active->apply_gradient(pre_adapter_hidden, grad_hidden);
+        active->update_statistics(pre_adapter_hidden);
         stats.adapter_norm = active->norm();
     }
 
