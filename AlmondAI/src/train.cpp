@@ -22,7 +22,6 @@ const std::filesystem::path kSeedDataPath{"data/training_seed.jsonl"};
 const std::filesystem::path kVocabPath{"data/vocab.txt"};
 const std::filesystem::path kWeightsPath{"data/student_weights.json"};
 const std::filesystem::path kSeedTextPath{"data/seed.txt"};
-const std::filesystem::path kEnglishVocabPath{"data/english.txt"};
 
 constexpr const char kDefaultSeedText[] =
     R"(AlmondAI is a self-evolving C++23 AI engine runtime that learns from its own source code, compiler feedback, and user interaction. It integrates AI directly into the software loop, enabling self-analysis, self-rebuilds, and continuous evolution across its modules.
@@ -520,7 +519,6 @@ void ContinuousLearner::load_persistent_data() {
     fs::create_directories(kTrainingDataPath.parent_path(), ec);
 
     ensure_seed_samples();
-    seed_vocab_from_english();
 
     if (fs::exists(kWeightsPath)) {
         m_student.base().load_weights(kWeightsPath.string());
@@ -753,25 +751,6 @@ std::string ContinuousLearner::derive_document_id(const CuratedSample& sample, s
     std::ostringstream oss;
     oss << "sample:" << index << ':' << hasher(sample.prompt + sample.teacher_output);
     return oss.str();
-}
-
-void ContinuousLearner::seed_vocab_from_english() {
-    std::ifstream english(kEnglishVocabPath);
-    if (!english) {
-        return;
-    }
-    std::ostringstream buffer;
-    buffer << english.rdbuf();
-    const std::string contents = buffer.str();
-    if (contents.empty()) {
-        return;
-    }
-    const std::size_t before_vocab = m_tokenizer.vocab().size();
-    m_tokenizer.build_vocab({contents});
-    if (m_tokenizer.vocab().size() > before_vocab) {
-        m_student.base().resize_vocab(m_tokenizer.vocab().size());
-        m_tokenizer.save_vocab(kVocabPath.string());
-    }
 }
 
 } // namespace almondai
