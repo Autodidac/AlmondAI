@@ -1,217 +1,358 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>AlmondAI ↔ LM Studio Quick Client</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <style>
-    body {
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      margin: 0;
-      padding: 2rem;
-      background: #101216;
-      color: #e6edf3;
-    }
-    h1 {
-      margin-top: 0;
-      font-size: 1.8rem;
-    }
-    label {
-      display: block;
-      margin-top: 1rem;
-      font-weight: 600;
-    }
-    input[type="text"],
-    input[type="number"],
-    textarea {
-      width: 100%;
-      box-sizing: border-box;
-      padding: 0.6rem 0.75rem;
-      margin-top: 0.35rem;
-      border: 1px solid #384455;
-      border-radius: 0.5rem;
-      background: #0b0d10;
-      color: inherit;
-      font-size: 0.95rem;
-      font-family: inherit;
-    }
-    textarea {
-      min-height: 8rem;
-      resize: vertical;
-    }
-    button {
-      margin-top: 1.5rem;
-      padding: 0.75rem 1.5rem;
-      font-size: 1rem;
-      border-radius: 999px;
-      border: none;
-      background: linear-gradient(135deg, #6b8bff, #a855f7);
-      color: white;
-      font-weight: 600;
-      cursor: pointer;
-    }
-    button:disabled {
-      opacity: 0.6;
-      cursor: progress;
-    }
-    .hint {
-      font-size: 0.85rem;
-      color: #97a6bc;
-      margin-top: 0.35rem;
-    }
-    pre {
-      background: #0b0d10;
-      border-radius: 0.5rem;
-      padding: 1rem;
-      overflow-x: auto;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-    .layout {
-      max-width: 840px;
-      margin: 0 auto;
-    }
-    .output {
-      margin-top: 2rem;
-    }
-    .error {
-      color: #f97070;
-      font-weight: 600;
-      margin-top: 1rem;
-    }
-    a {
-      color: #82aaff;
-    }
-  </style>
+<meta charset="utf-8" />
+<title>AlmondAI ↔ LM Studio — Chat UI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root { color-scheme: dark; --bg:#0b0d10; --fg:#e6edf3; --muted:#a0aec0; --ring:#334155; --accent:#7c3aed; --accent2:#4f46e5; --user:#1f2937; --assistant:#111827;}
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:#101216;color:var(--fg);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+  .app{display:grid;grid-template-rows:auto 1fr auto;max-width:980px;margin:0 auto;height:100%}
+  header{position:sticky;top:0;background:rgba(16,18,22,.85);backdrop-filter:saturate(1.2) blur(8px);border-bottom:1px solid var(--ring);padding:.75rem 1rem;display:flex;gap:.75rem;align-items:center}
+  header .title{font-weight:700}
+  header .pill{display:flex;gap:.5rem;align-items:center;border:1px solid var(--ring);border-radius:999px;padding:.35rem .6rem;font-size:.85rem;color:var(--muted)}
+  header input{background:transparent;border:none;color:inherit;min-width:260px;outline:none}
+  header button, .toolbar button{border:1px solid var(--ring);background:#0f1320;border-radius:8px;color:inherit;padding:.35rem .6rem;cursor:pointer}
+  header .settings{margin-left:auto}
+  .chat{padding:1rem;overflow:auto;scroll-behavior:smooth}
+  .msg{display:flex;gap:.75rem;margin:0 auto 1rem;max-width:860px}
+  .avatar{width:28px;height:28px;border-radius:6px;display:grid;place-items:center;font-weight:700;font-size:.8rem;background:#222}
+  .user .avatar{background:#0b4}
+  .assistant .avatar{background:#444}
+  .bubble{flex:1;border:1px solid var(--ring);border-radius:12px;padding:.85rem;background:var(--assistant)}
+  .user .bubble{background:var(--user)}
+  .bubble pre{white-space:pre-wrap;word-wrap:break-word;margin:0}
+  .bubble .meta{font-size:.75rem;color:var(--muted);margin-bottom:.25rem}
+  .toolbar{display:flex;gap:.5rem;align-items:center;margin:.35rem 0 0 40px}
+  .toolbar button{font-size:.8rem}
+  .hidden{display:none}
+  .composer{border-top:1px solid var(--ring);padding:.75rem 1rem;background:linear-gradient(180deg,rgba(16,18,22,.9),rgba(16,18,22,1))}
+  .row{display:flex;gap:.75rem;align-items:flex-end;max-width:860px;margin:0 auto}
+  .grow{flex:1}
+  textarea{width:100%;min-height:48px;max-height:220px;resize:none;border:1px solid var(--ring);border-radius:12px;background:var(--bg);color:inherit;padding:.75rem .9rem;font-size:1rem;line-height:1.35}
+  textarea:focus{outline:2px solid transparent;border-color:#5b6bff;box-shadow:0 0 0 3px rgba(99,102,241,.25)}
+  .send{border:none;border-radius:12px;background:linear-gradient(135deg,var(--accent2),var(--accent));color:#fff;padding:.7rem 1rem;cursor:pointer;min-width:98px}
+  .send:disabled{opacity:.6;cursor:progress}
+  details.panel{max-width:860px;margin:.35rem auto 0}
+  details.panel > summary{cursor:pointer;list-style:none;font-size:.9rem;color:var(--muted)}
+  details.panel > summary::-webkit-details-marker{display:none}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin-top:.5rem}
+  .grid label{font-size:.85rem;color:var(--muted)}
+  .grid input{width:100%;border:1px solid var(--ring);border-radius:8px;background:var(--bg);color:inherit;padding:.45rem .55rem}
+  .error{color:#f97272;margin:.4rem 0}
+  .status{color:var(--muted);font-size:.85rem;margin-left:.5rem}
+  .copy{float:right;font-size:.75rem;opacity:.8}
+</style>
 </head>
 <body>
-  <div class="layout">
-    <h1>AlmondAI ↔ LM Studio Quick Client</h1>
-    <p>This standalone HTML page mirrors the OpenAI-compatible requests that AlmondAI sends
-      when <code>chat use lmstudio</code> is active. Open it in a browser on the same machine as LM Studio,
-      keep the defaults, and send prompts to confirm the server is reachable.</p>
-
-    <label for="endpoint">Endpoint</label>
-    <input id="endpoint" type="text" value="http://127.0.0.1:1234/v1/chat/completions" />
-    <p class="hint">Leave the default when LM Studio is running locally with the HTTP server enabled.</p>
-
-    <label for="model">Model</label>
-    <input id="model" type="text" value="lmstudio" />
-
-    <label for="system">System prompt (optional)</label>
-    <textarea id="system" placeholder="You are AlmondAI's teacher model."></textarea>
-
-    <label for="prompt">User prompt</label>
-    <textarea id="prompt" placeholder="Ask LM Studio something..." required></textarea>
-
-    <label for="temperature">Temperature</label>
-    <input id="temperature" type="number" min="0" max="2" step="0.1" value="0.2" />
-    <p class="hint">LM Studio does not require an API key by default. If you have one configured, add a Bearer token below.</p>
-
-    <label for="apiKey">API key (optional)</label>
-    <input id="apiKey" type="text" placeholder="sk-..." />
-
-    <button id="send">Send prompt</button>
-
-    <div id="status" class="hint" aria-live="polite"></div>
-
-    <div class="output" id="output" hidden>
-      <h2>Response</h2>
-      <pre id="responseText"></pre>
-      <details>
-        <summary>Raw JSON</summary>
-        <pre id="rawJson"></pre>
-      </details>
+<div class="app">
+  <header>
+    <div class="title">AlmondAI ↔ LM Studio</div>
+    <div class="pill">
+      <span>Endpoint:</span>
+      <input id="endpoint" value="http://localhost:1234/v1/chat/completions" spellcheck="false" />
+      <button id="probe">Probe</button>
     </div>
+    <div class="pill">
+      <span>Model:</span>
+      <input id="model" value="deepseek/deepseek-r1-0528-qwen3-8b" spellcheck="false" />
+      <button id="autofill">Auto-fill</button>
+    </div>
+    <button id="settingsBtn" class="settings">Settings</button>
+    <span id="status" class="status"></span>
+  </header>
 
-    <div id="error" class="error" role="alert"></div>
-  </div>
+  <main id="chat" class="chat" aria-live="polite"></main>
 
-  <script>
-    const sendButton = document.getElementById('send');
-    const statusEl = document.getElementById('status');
-    const outputSection = document.getElementById('output');
-    const responseTextEl = document.getElementById('responseText');
-    const rawJsonEl = document.getElementById('rawJson');
-    const errorEl = document.getElementById('error');
+  <section class="composer">
+    <details id="settingsPanel" class="panel">
+      <summary>Session settings</summary>
+      <div class="grid">
+        <label>System prompt
+          <input id="system" value="Always answer in rhymes. Today is Thursday" />
+        </label>
+        <label>API key (optional)
+          <input id="apiKey" placeholder="sk-..." />
+        </label>
+        <label>Temperature
+          <input id="temperature" type="number" min="0" max="2" step="0.1" value="0.7" />
+        </label>
+        <label>max_tokens (-1 unlimited)
+          <input id="max_tokens" type="number" step="1" value="-1" />
+        </label>
+        <label>Stream
+          <input id="stream" type="checkbox" />
+        </label>
+        <label></label>
+      </div>
+      <div class="grid">
+        <label>
+          <button id="clear" type="button">Clear chat</button>
+        </label>
+        <label>
+          <button id="copyAll" type="button">Copy all text</button>
+        </label>
+      </div>
+    </details>
 
-    function buildMessages(system, prompt) {
-      const messages = [];
-      if (system.trim()) {
-        messages.push({ role: 'system', content: system.trim() });
-      }
-      messages.push({ role: 'user', content: prompt.trim() });
-      return messages;
+    <div class="row">
+      <div class="grow">
+        <textarea id="prompt" placeholder="Message LM Studio… (Enter to send, Shift+Enter newline)"></textarea>
+        <div id="error" class="error"></div>
+      </div>
+      <button id="send" class="send">Send</button>
+      <button id="stop" class="send hidden" style="background:#334155">Stop</button>
+      <button id="regen" class="send hidden" style="background:#26314a">Regenerate</button>
+    </div>
+  </section>
+</div>
+
+<script>
+const $ = (id)=>document.getElementById(id);
+const chat = $('chat'), promptEl = $('prompt'), sendBtn = $('send'), stopBtn = $('stop'), regenBtn = $('regen');
+const statusEl = $('status'), errEl = $('error');
+
+let controller = null;
+let history = []; // [{role:'user'|'assistant'|'system', content:'...'}]
+let lastUser = '';
+
+/* ---------- UI helpers ---------- */
+function esc(s){ return s.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])); }
+
+function addMsg(role, content, ongoing=false){
+  const wrap = document.createElement('div');
+  wrap.className = `msg ${role}`;
+  const avatar = document.createElement('div');
+  avatar.className = 'avatar';
+  avatar.textContent = role === 'user' ? 'U' : (role === 'assistant' ? 'A' : 'S');
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  const meta = document.createElement('div'); meta.className='meta';
+  meta.textContent = role.charAt(0).toUpperCase()+role.slice(1);
+  const pre = document.createElement('pre');
+  pre.innerHTML = esc(content || '');
+  const copy = document.createElement('button');
+  copy.textContent = 'Copy';
+  copy.className = 'copy';
+  copy.onclick = ()=>navigator.clipboard.writeText(pre.textContent);
+  bubble.appendChild(copy);
+  bubble.appendChild(meta);
+  bubble.appendChild(pre);
+  wrap.appendChild(avatar);
+  wrap.appendChild(bubble);
+  chat.appendChild(wrap);
+  chat.scrollTop = chat.scrollHeight;
+  return {wrap, pre};
+}
+
+function updateStreaming(preEl, chunk){
+  preEl.textContent += chunk;
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function setBusy(b){
+  sendBtn.disabled = b;
+  stopBtn.classList.toggle('hidden', !b);
+  regenBtn.classList.toggle('hidden', b || history.length===0);
+}
+
+function showError(msg){ errEl.textContent = msg || ''; }
+
+/* ---------- Persistence ---------- */
+function loadPrefs(){
+  const get = k => localStorage.getItem(k);
+  const setIf = (id,k)=>{ const v=get(k); if(v!==null) $(id).value = v; };
+  setIf('endpoint','lm_endpoint');
+  setIf('model','lm_model');
+  setIf('system','lm_system');
+  setIf('temperature','lm_temp');
+  setIf('max_tokens','lm_maxtok');
+  $('stream').checked = (get('lm_stream')||'0') === '1';
+  const saved = get('lm_chat');
+  if (saved) { try { history = JSON.parse(saved); } catch{} }
+  if (history.length) renderHistory();
+}
+function savePrefs(){
+  localStorage.setItem('lm_endpoint', $('endpoint').value.trim());
+  localStorage.setItem('lm_model', $('model').value.trim());
+  localStorage.setItem('lm_system', $('system').value);
+  localStorage.setItem('lm_temp', $('temperature').value);
+  localStorage.setItem('lm_maxtok', $('max_tokens').value);
+  localStorage.setItem('lm_stream', $('stream').checked ? '1':'0');
+  localStorage.setItem('lm_chat', JSON.stringify(history));
+}
+
+/* ---------- Probe / models (no preflight) ---------- */
+$('probe').onclick = async ()=>{
+  statusEl.textContent='Probing…';
+  const url = $('endpoint').value.trim().replace(/\/v1\/chat\/completions.*$/,'/v1/models');
+  try{
+    const r = await fetch(url, { method:'GET' }); // simple GET
+    const js = await r.json();
+    statusEl.textContent = `Models: ${Array.isArray(js.data)?js.data.length:(js.models?.length||0)}`;
+  }catch(e){ statusEl.textContent='Probe failed'; }
+};
+$('autofill').onclick = async ()=>{
+  statusEl.textContent='Fetching models…';
+  const url = $('endpoint').value.trim().replace(/\/v1\/chat\/completions.*$/,'/v1/models');
+  try{
+    const r = await fetch(url, { method:'GET' });
+    const js = await r.json();
+    const id = js?.data?.[0]?.id || js?.models?.[0]?.id;
+    if (id){ $('model').value = id; statusEl.textContent = `Model: ${id}`; savePrefs(); }
+    else statusEl.textContent = 'No models returned';
+  }catch(e){ statusEl.textContent='Fetch failed'; }
+};
+
+/* ---------- Chat send ---------- */
+async function sendMessage(text, {regenerate=false}={}){
+  showError('');
+  const endpoint = $('endpoint').value.trim();
+  const model = $('model').value.trim();
+  const sys = $('system').value;
+  const temperature = parseFloat($('temperature').value)||0.7;
+  const max_tokens = parseInt($('max_tokens').value,10);
+  const stream = $('stream').checked;
+  const apiKey = $('apiKey').value.trim();
+
+  if (!endpoint) return showError('Endpoint required.');
+  if (!model) return showError('Model required.');
+  if (!text.trim() && !regenerate) return;
+
+  setBusy(true);
+  statusEl.textContent = stream ? 'Streaming…' : 'Sending…';
+
+  // Build messages = optional system + full history + new user
+  const messages = [];
+  if (sys.trim()) messages.push({ role:'system', content: sys.trim() });
+  for (const m of history) {
+    if (m.role==='system') continue; // system handled by input
+    messages.push({ role:m.role, content:m.content });
+  }
+  if (!regenerate) {
+    messages.push({ role:'user', content:text.trim() });
+    history.push({ role:'user', content:text.trim() });
+    lastUser = text.trim();
+  } else {
+    // regenerate last assistant reply from last user
+    // remove last assistant if present
+    for (let i = history.length-1; i>=0; --i) {
+      if (history[i].role==='assistant'){ history.splice(i,1); break; }
     }
+    messages.push({ role:'user', content:lastUser });
+  }
 
-    async function sendPrompt() {
-      const endpoint = document.getElementById('endpoint').value.trim();
-      const model = document.getElementById('model').value.trim() || 'lmstudio';
-      const system = document.getElementById('system').value;
-      const prompt = document.getElementById('prompt').value;
-      const temperature = parseFloat(document.getElementById('temperature').value) || 0.2;
-      const apiKey = document.getElementById('apiKey').value.trim();
+  savePrefs();
 
-      errorEl.textContent = '';
-      outputSection.hidden = true;
-      statusEl.textContent = '';
+  // Render user bubble if not regenerate
+  if (!regenerate) addMsg('user', text.trim());
 
-      if (!endpoint) {
-        errorEl.textContent = 'Endpoint is required.';
-        return;
+  // Render assistant placeholder
+  const node = addMsg('assistant', '');
+  const headers = {'Content-Type':'application/json'};
+  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+  const body = { model, temperature, max_tokens, stream, messages };
+
+  controller = new AbortController();
+  const opts = { method:'POST', headers, body:JSON.stringify(body), signal: controller.signal };
+
+  try{
+    const r = await fetch(endpoint, opts);
+    if (!stream){
+      const js = await r.json();
+      const content = js?.choices?.[0]?.message?.content ?? js?.output_text ?? '';
+      node.pre.textContent = content;
+      history.push({ role:'assistant', content });
+      statusEl.textContent = `HTTP ${r.status}`;
+      if (!r.ok) showError(js?.error?.message || 'Request failed');
+    }else{
+      if (!r.body){ showError('No stream body'); statusEl.textContent=''; setBusy(false); return; }
+      const reader = r.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      while (true){
+        const {value, done} = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, {stream:true});
+        const parts = buf.split('\n\n'); buf = parts.pop();
+        for (const part of parts){
+          const line = part.trim();
+          if (!line.startsWith('data:')) continue;
+          const payload = line.slice(5).trim();
+          if (payload === '[DONE]'){ break; }
+          try{
+            const js = JSON.parse(payload);
+            const delta = js?.choices?.[0]?.delta?.content ?? '';
+            if (delta) updateStreaming(node.pre, delta);
+          }catch{}
+        }
       }
-      if (!prompt.trim()) {
-        errorEl.textContent = 'Prompt cannot be empty.';
-        return;
-      }
-
-      sendButton.disabled = true;
-      statusEl.textContent = 'Sending request…';
-
-      const headers = { 'Content-Type': 'application/json' };
-      if (apiKey) {
-        headers['Authorization'] = `Bearer ${apiKey}`;
-      }
-
-      const body = {
-        model,
-        temperature,
-        messages: buildMessages(system, prompt)
-      };
-
-      try {
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(body)
-        });
-
-        const json = await response.json();
-        rawJsonEl.textContent = JSON.stringify(json, null, 2);
-
-        const content = json?.choices?.[0]?.message?.content
-          || json?.output_text
-          || '(no text field returned)';
-
-        responseTextEl.textContent = content;
-        outputSection.hidden = false;
-        statusEl.textContent = `HTTP ${response.status}`;
-      } catch (err) {
-        console.error(err);
-        errorEl.textContent = err instanceof Error ? err.message : String(err);
-        statusEl.textContent = '';
-      } finally {
-        sendButton.disabled = false;
-      }
+      // finalize text into history
+      history.push({ role:'assistant', content: node.pre.textContent });
+      statusEl.textContent = `HTTP ${r.status}`;
     }
+  }catch(e){
+    if (e.name === 'AbortError'){ statusEl.textContent='Stopped'; }
+    else if (String(e).includes('Failed to fetch')){
+      showError('Fetch failed. Enable LM Studio “Allow browser requests (CORS)” and verify host/port.');
+      statusEl.textContent='';
+    } else {
+      showError(String(e)); statusEl.textContent='';
+    }
+  }finally{
+    controller = null;
+    setBusy(false);
+    savePrefs();
+  }
+}
 
-    sendButton.addEventListener('click', sendPrompt);
-    document.addEventListener('keydown', (event) => {
-      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-        event.preventDefault();
-        sendPrompt();
-      }
-    });
-  </script>
+function renderHistory(){
+  chat.innerHTML = '';
+  for (const m of history){
+    if (m.role === 'system') continue; // not shown as a bubble; set in settings
+    addMsg(m.role, m.content);
+  }
+  chat.scrollTop = chat.scrollHeight;
+}
+
+/* ---------- Controls ---------- */
+$('send').onclick = ()=>{
+  const t = promptEl.value;
+  promptEl.value = '';
+  sendMessage(t);
+};
+$('stop').onclick = ()=>{ if (controller) controller.abort(); };
+$('regen').onclick = ()=>{ if (lastUser) sendMessage('', {regenerate:true}); };
+
+$('clear').onclick = ()=>{
+  history = [];
+  savePrefs();
+  renderHistory();
+};
+$('copyAll').onclick = ()=>{
+  const all = history.filter(m=>m.role!=='system').map(m=>`${m.role.toUpperCase()}: ${m.content}`).join('\n\n');
+  navigator.clipboard.writeText(all || '');
+};
+
+$('settingsBtn').onclick = ()=>{ $('settingsPanel').open = !$('settingsPanel').open; };
+
+/* Keyboard: Enter send, Shift+Enter newline, Up to recall last user */
+promptEl.addEventListener('keydown', (e)=>{
+  if (e.key === 'Enter' && !e.shiftKey){
+    e.preventDefault();
+    $('send').click();
+  } else if (e.key === 'ArrowUp' && !promptEl.value){
+    e.preventDefault();
+    promptEl.value = lastUser || '';
+  }
+});
+
+/* Boot */
+loadPrefs();
+renderHistory();
+setBusy(false);
+</script>
 </body>
 </html>
