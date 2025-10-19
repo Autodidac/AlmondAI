@@ -24,6 +24,78 @@ const std::filesystem::path kWeightsPath{"data/student_weights.json"};
 const std::filesystem::path kSeedTextPath{"data/seed.txt"};
 const std::filesystem::path kEnglishVocabPath{"data/english.txt"};
 
+constexpr const char kDefaultSeedText[] =
+    R"(AlmondAI is a self-evolving C++23 AI engine runtime that learns from its own source code, compiler feedback, and user interaction. It integrates AI directly into the software loop, enabling self-analysis, self-rebuilds, and continuous evolution across its modules.
+
+Hello  <eos>
+hello  <eos>
+Hi  <eos>
+Hey  <eos>
+Hey there  <eos>
+Hello there  <eos>
+Greetings  <eos>
+Howdy  <eos>
+Nice to meet you  <eos>
+Pleasure to meet you  <eos>
+Good to see you  <eos>
+How are you?  <eos>
+I'm fine. How about you?  <eos>
+Good morning  <eos>
+Good afternoon  <eos>
+Good evening  <eos>
+Good night  <eos>
+What's up  <eos>
+What's new  <eos>
+Not much  <eos>
+
+Bonjour (French)  <eos>
+Konnichiwa (Japanese)  <eos>
+As-salamu alaykum (Arabic) → Wa alaykum as-salam  <eos>
+Hola (Spanish)  <eos>
+Sawasdee (Thai)  <eos>
+
+In Japan, people bow to show respect.  <eos>
+In many Middle Eastern cultures, the left hand is not used for eating.  <eos>
+In France, it's common to kiss on both cheeks when greeting friends.  <eos>
+
+The human brain has about 86 billion neurons that communicate through signals.  <eos>
+These neurons form networks responsible for thinking, memory, and movement.  <eos>
+
+In quantum mechanics, particles can exist in a state of uncertainty until observed.  <eos>
+This idea is often described using the example of Schrödinger's cat.  <eos>
+
+The Renaissance was a time of cultural and scientific growth in Europe.  <eos>
+Key figures include Leonardo da Vinci, Galileo Galilei, and Johannes Gutenberg.  <eos>
+
+The Great Wall of China spans over 13,000 miles and was built to protect against invasions.  <eos>
+It includes watchtowers, garrisons, and signal beacons.  <eos>
+
+Free will is the idea that humans can make choices independent of external forces.  <eos>
+Determinism argues that all events are caused by prior causes, making free will an illusion.  <eos>
+
+In Japan, people use chopsticks for eating. Pointing them at others is considered rude.  <eos>
+In many Middle Eastern cultures, using the right hand for eating is preferred.  <eos>
+
+Time flows from past to future in physics.  <eos>
+Einstein's theory of relativity shows that time can be affected by gravity and speed.  <eos>
+
+If every part of a ship is replaced over time, is it still the same ship?  <eos>
+A moving object can never reach its destination because it must cover half the distance first, then half of that, and so on infinitely.  <eos>
+
+Should you steal medicine to save a dying loved one if no one else has access to it?  <eos>
+
+The weather is nice today. I enjoy sunny days.  <eos>
+I feel tired but I will keep going.  <eos>
+Making mistakes is part of learning.  <eos>
+Sometimes things go wrong, but we can fix them.  <eos>
+Bad choices often lead to bad outcomes.  <eos>
+
+Wars can last for many years.  <eos>
+Dynasties often change over time.  <eos>
+Japan has a rich history of cultural traditions.  <eos>
+Formality is important in some cultures but less so in others.  <eos>
+)";
+
 std::optional<CuratedSample> parse_sample_line(const std::string& line) {
     if (line.empty()) {
         return std::nullopt;
@@ -78,13 +150,7 @@ std::string ensure_seed_text() {
             return std::string();
         }
 
-        std::ifstream english(kEnglishVocabPath);
-        if (english) {
-            out << english.rdbuf();
-        } else {
-            out << "AlmondAI is a self-evolving C++23 AI engine runtime that learns from its own source code, compiler feedback, and user interaction. "
-                   "It integrates AI directly into the software loop, enabling self-analysis, self-rebuilds, and continuous evolution across its modules.";
-        }
+        out << kDefaultSeedText;
     }
 
     std::ifstream in(kSeedTextPath);

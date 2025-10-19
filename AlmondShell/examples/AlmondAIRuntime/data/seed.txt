@@ -1,14 +1,24 @@
 AlmondAI is a self-evolving C++23 AI engine runtime that learns from its own source code, compiler feedback, and user interaction. It integrates AI directly into the software loop, enabling self-analysis, self-rebuilds, and continuous evolution across its modules.
 
-
 Hello  <eos>
+hello  <eos>
 Hi  <eos>
+Hey  <eos>
+Hey there  <eos>
+Hello there  <eos>
+Greetings  <eos>
+Howdy  <eos>
+Nice to meet you  <eos>
+Pleasure to meet you  <eos>
+Good to see you  <eos>
 How are you?  <eos>
 I'm fine. How about you?  <eos>
 Good morning  <eos>
 Good afternoon  <eos>
 Good evening  <eos>
+Good night  <eos>
 What's up  <eos>
+What's new  <eos>
 Not much  <eos>
 
 Bonjour (French)  <eos>
