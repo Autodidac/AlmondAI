@@ -1,6 +1,7 @@
 #include "../include/almondai/train.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <iomanip>
 #include <filesystem>
 #include <sstream>
@@ -9,6 +10,7 @@
 #include <fstream>
 #include <chrono>
 #include <random>
+#include <cstdint>
 #include <cmath>
 #include <numeric>
 #include <unordered_map>
@@ -133,6 +135,18 @@ std::optional<CuratedSample> parse_sample_line(const std::string& line) {
     } catch (...) {
         return std::nullopt;
     }
+}
+
+std::mt19937 make_training_rng() {
+    static std::atomic<std::uint64_t> counter{0};
+    const auto now = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+    const std::uint64_t seed = static_cast<std::uint64_t>(now)
+        ^ (counter.fetch_add(1, std::memory_order_relaxed) + 0x9e3779b97f4a7c15ULL);
+    std::seed_seq seq{
+        static_cast<std::seed_seq::result_type>(seed & 0xffffffffu),
+        static_cast<std::seed_seq::result_type>((seed >> 32) & 0xffffffffu)
+    };
+    return std::mt19937(seq);
 }
 
 std::string ensure_seed_text() {
@@ -537,7 +551,7 @@ void ContinuousLearner::fit(const std::string& path,
         return;
     }
 
-    std::mt19937 rng(std::random_device{}());
+    std::mt19937 rng = make_training_rng();
     const int steps_per_epoch = std::max(1, static_cast<int>((dataset.size() + safe_batch - 1) / safe_batch));
     const double base_lr = m_student.base().config().learning_rate;
 
