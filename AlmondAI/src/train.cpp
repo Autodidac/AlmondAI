@@ -135,9 +135,21 @@ std::optional<CuratedSample> ContinuousLearner::ingest(const std::string& prompt
                 prov["sample_hash"] = Json(document_id);
             }
         }
-        m_retrieval.ingest_document(document_id, teacher_output);
+        std::string retrieval_text = curated->prompt;
+        if (!retrieval_text.empty() && !teacher_output.empty()) {
+            retrieval_text.append("\n\n");
+        }
+        retrieval_text.append(teacher_output);
+        m_retrieval.ingest_document(document_id, retrieval_text);
+        m_document_to_index[document_id] = index;
     } else {
-        m_retrieval.ingest_document(prompt_hash, teacher_output);
+        std::string retrieval_text = curated->prompt;
+        if (!retrieval_text.empty() && !teacher_output.empty()) {
+            retrieval_text.append("\n\n");
+        }
+        retrieval_text.append(teacher_output);
+        m_retrieval.ingest_document(prompt_hash, retrieval_text);
+        m_document_to_index[prompt_hash] = index;
     }
     persist_sample(m_training_data.back());
     return m_training_data.back();
@@ -408,7 +420,13 @@ void ContinuousLearner::load_persistent_data() {
                 if (seed_sample.provenance.is_object()) {
                     seed_sample.provenance.as_object()["sample_hash"] = Json(document_id);
                 }
-                m_retrieval.ingest_document(document_id, seed_sample.teacher_output);
+                std::string retrieval_text = seed_sample.prompt;
+                if (!retrieval_text.empty() && !seed_sample.teacher_output.empty()) {
+                    retrieval_text.append("\n\n");
+                }
+                retrieval_text.append(seed_sample.teacher_output);
+                m_retrieval.ingest_document(document_id, retrieval_text);
+                m_document_to_index[document_id] = index;
             }
 
             m_tokenizer.save_vocab(kVocabPath.string());
@@ -453,19 +471,39 @@ void ContinuousLearner::load_samples_from_file(const std::filesystem::path& path
             if (m_eval_data.size() < 16) {
                 m_eval_data.push_back(sample_value);
             }
+            std::string retrieval_text = sample_value.prompt;
+            if (!retrieval_text.empty() && !sample_value.teacher_output.empty()) {
+                retrieval_text.append("\n\n");
+            }
+            retrieval_text.append(sample_value.teacher_output);
             if (!document_id.empty()) {
-                m_retrieval.ingest_document(document_id, sample_value.teacher_output);
+                m_retrieval.ingest_document(document_id, retrieval_text);
+                m_document_to_index[document_id] = index;
             } else {
                 std::hash<std::string> hasher;
                 std::ostringstream oss;
                 oss << "sample:" << index << ':' << hasher(sample_value.prompt + sample_value.teacher_output);
-                m_retrieval.ingest_document(oss.str(), sample_value.teacher_output);
+                const std::string fallback_id = oss.str();
+                m_retrieval.ingest_document(fallback_id, retrieval_text);
+                m_document_to_index[fallback_id] = index;
             }
         }
     }
     if (!m_training_data.empty()) {
         m_tokenizer.save_vocab(kVocabPath.string());
     }
+}
+
+const CuratedSample* ContinuousLearner::recall_sample(const std::string& document_id) const {
+    auto it = m_document_to_index.find(document_id);
+    if (it == m_document_to_index.end()) {
+        return nullptr;
+    }
+    const std::size_t index = it->second;
+    if (index >= m_training_data.size()) {
+        return nullptr;
+    }
+    return &m_training_data[index];
 }
 
 void ContinuousLearner::persist_sample(const CuratedSample& sample) {

@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <functional>
 #include <string>
+#include <unordered_map>
 
 namespace almondai {
 
@@ -55,6 +56,8 @@ public:
     RetrievalIndex& retrieval() { return m_retrieval; }
     PolicyGovernor& governor() { return m_governor; }
 
+    const CuratedSample* recall_sample(const std::string& document_id) const;
+
 private:
     StudentModel m_student;
     AdapterManager m_adapters;
@@ -65,6 +68,7 @@ private:
     DataCurator m_curator;
     std::vector<CuratedSample> m_training_data;
     std::vector<CuratedSample> m_eval_data;
+    std::unordered_map<std::string, std::size_t> m_document_to_index;
     std::ofstream m_log_file;
     std::size_t m_step = 0;
 
