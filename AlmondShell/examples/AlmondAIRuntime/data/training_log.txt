@@ -83,3 +83,6 @@ Each entry below records a single training or evaluation step in a human-readabl
 
 Step 1 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.649951 | retrieval_hit_rate=0.000000
 Step 2 | loss=0.000000 | accuracy=0.000000 | adapter_norm=0.649952 | retrieval_hit_rate=1.000000
+AlmondAI training log
+Each entry below records a single training or evaluation step in a human-readable format.
+
