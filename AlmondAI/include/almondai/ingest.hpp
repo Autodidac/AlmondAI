@@ -15,6 +15,7 @@ struct CuratedSample {
     std::string teacher_output;
     Json constraints;
     Json provenance;
+    std::vector<std::string> semantic_tags;
 };
 
 struct PreferencePair {

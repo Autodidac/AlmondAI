@@ -25,6 +25,7 @@ const std::filesystem::path kSeedDataPath{"data/training_seed.jsonl"};
 const std::filesystem::path kVocabPath{"data/vocab.txt"};
 const std::filesystem::path kWeightsPath{"data/student_weights.json"};
 const std::filesystem::path kSeedTextPath{"data/seed.txt"};
+const std::filesystem::path kRetrievalMetadataPath{"data/retrieval_index.json"};
 
 constexpr const char kDefaultSeedText[] =
     R"(AlmondAI is a self-evolving C++23 AI engine runtime that learns from its own source code, compiler feedback, and user interaction. It integrates AI directly into the software loop, enabling self-analysis, self-rebuilds, and continuous evolution across its modules.
@@ -131,6 +132,15 @@ std::optional<CuratedSample> parse_sample_line(const std::string& line) {
             sample.provenance = provenance_it->second;
         } else {
             sample.provenance = JsonObject{};
+        }
+        if (auto tags_it = obj.find("semantic_tags"); tags_it != obj.end() && tags_it->second.is_array()) {
+            const auto& tags_array = tags_it->second.as_array();
+            sample.semantic_tags.reserve(tags_array.size());
+            for (const auto& entry : tags_array) {
+                if (entry.is_string()) {
+                    sample.semantic_tags.push_back(entry.as_string());
+                }
+            }
         }
         return sample;
     } catch (...) {
@@ -245,6 +255,106 @@ void ensure_seed_samples() {
         "self::reinforcement_cycle");
 
 }
+
+std::string normalise_tag_value(std::string value) {
+    auto not_space = [](unsigned char ch) { return !std::isspace(ch); };
+    value.erase(value.begin(), std::find_if(value.begin(), value.end(), not_space));
+    value.erase(std::find_if(value.rbegin(), value.rend(), not_space).base(), value.end());
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return value;
+}
+
+void append_tag(std::vector<std::string>& tags, std::unordered_set<std::string>& seen, std::string tag) {
+    if (tag.empty()) {
+        return;
+    }
+    if (seen.insert(tag).second) {
+        tags.push_back(std::move(tag));
+    }
+}
+
+std::vector<std::string> compute_semantic_tags(const CuratedSample& sample) {
+    std::vector<std::string> tags;
+    std::unordered_set<std::string> seen;
+    tags.reserve(sample.semantic_tags.size() + 6);
+    for (const auto& existing : sample.semantic_tags) {
+        const std::string normalised = normalise_tag_value(existing);
+        append_tag(tags, seen, normalised);
+    }
+
+    auto add_prefixed = [&](std::string prefix, const std::string& raw) {
+        std::string normalised = normalise_tag_value(raw);
+        if (normalised.empty()) {
+            return;
+        }
+        append_tag(tags, seen, prefix + ':' + normalised);
+        const std::size_t delim = normalised.find("::");
+        if (delim != std::string::npos && delim > 0) {
+            append_tag(tags, seen, prefix + ':' + normalised.substr(0, delim));
+        }
+    };
+
+    if (sample.provenance.is_object()) {
+        const auto& prov = sample.provenance.as_object();
+        if (auto it = prov.find("source"); it != prov.end() && it->second.is_string()) {
+            const std::string value = it->second.as_string();
+            add_prefixed("source", value);
+            if (normalise_tag_value(value) == "seed") {
+                append_tag(tags, seen, "curriculum:seed");
+            }
+        }
+        if (auto it = prov.find("status"); it != prov.end() && it->second.is_string()) {
+            add_prefixed("status", it->second.as_string());
+        }
+        if (auto it = prov.find("teacher_source"); it != prov.end() && it->second.is_string()) {
+            add_prefixed("teacher", it->second.as_string());
+        }
+        else if (auto it = prov.find("backend"); it != prov.end() && it->second.is_string()) {
+            add_prefixed("teacher", it->second.as_string());
+        }
+        if (auto it = prov.find("backend"); it != prov.end() && it->second.is_string()) {
+            add_prefixed("backend", it->second.as_string());
+        }
+    }
+
+    if (!sample.prompt.empty()) {
+        std::string trimmed = sample.prompt;
+        trimmed.erase(trimmed.begin(), std::find_if_not(trimmed.begin(), trimmed.end(), [](unsigned char ch) {
+            return std::isspace(ch) != 0;
+        }));
+        if (!trimmed.empty()) {
+            std::string first_word;
+            for (char ch : trimmed) {
+                if (std::isspace(static_cast<unsigned char>(ch)) != 0) {
+                    break;
+                }
+                first_word.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+            }
+            if (!first_word.empty()) {
+                append_tag(tags, seen, "prompt:" + first_word);
+            }
+        }
+    }
+
+    return tags;
+}
+
+std::vector<std::string> merge_semantic_tags(std::vector<std::string> base,
+                                             const std::vector<std::string>& existing) {
+    std::unordered_set<std::string> seen(base.begin(), base.end());
+    for (const auto& tag : existing) {
+        std::string normalised = normalise_tag_value(tag);
+        if (normalised.empty()) {
+            continue;
+        }
+        if (seen.insert(normalised).second) {
+            base.push_back(normalised);
+        }
+    }
+    return base;
+}
 }
 
 ContinuousLearner::ContinuousLearner(StudentModel student,
@@ -276,6 +386,7 @@ std::optional<CuratedSample> ContinuousLearner::ingest(const std::string& prompt
     if (!curated) {
         return std::nullopt;
     }
+    curated->semantic_tags = compute_semantic_tags(*curated);
     const std::size_t before_vocab = m_tokenizer.vocab().size();
     m_tokenizer.build_vocab({curated->prompt, curated->teacher_output});
     const std::size_t after_vocab = m_tokenizer.vocab().size();
@@ -289,6 +400,14 @@ std::optional<CuratedSample> ContinuousLearner::ingest(const std::string& prompt
         m_eval_data.push_back(*curated);
     }
     const std::string document_id = derive_document_id(m_training_data.back(), index);
+    std::vector<std::string> merged_tags;
+    if (!document_id.empty()) {
+        merged_tags = merge_semantic_tags(m_training_data.back().semantic_tags, m_retrieval.tags_for(document_id));
+    } else {
+        merged_tags = merge_semantic_tags(m_training_data.back().semantic_tags, m_retrieval.tags_for(prompt_hash));
+    }
+    m_training_data.back().semantic_tags = merged_tags;
+    curated->semantic_tags = merged_tags;
     if (!document_id.empty()) {
         if (m_training_data.back().provenance.is_object()) {
             auto& prov = m_training_data.back().provenance.as_object();
@@ -301,7 +420,7 @@ std::optional<CuratedSample> ContinuousLearner::ingest(const std::string& prompt
             retrieval_text.append("\n\n");
         }
         retrieval_text.append(teacher_output);
-        m_retrieval.ingest_document(document_id, retrieval_text);
+        m_retrieval.ingest_document(document_id, retrieval_text, m_training_data.back().semantic_tags);
         m_document_to_index[document_id] = index;
     } else {
         std::string retrieval_text = curated->prompt;
@@ -309,9 +428,10 @@ std::optional<CuratedSample> ContinuousLearner::ingest(const std::string& prompt
             retrieval_text.append("\n\n");
         }
         retrieval_text.append(teacher_output);
-        m_retrieval.ingest_document(prompt_hash, retrieval_text);
+        m_retrieval.ingest_document(prompt_hash, retrieval_text, m_training_data.back().semantic_tags);
         m_document_to_index[prompt_hash] = index;
     }
+    m_retrieval.save_metadata(kRetrievalMetadataPath);
     persist_sample(m_training_data.back());
     if (m_log_file.is_open()) {
         const std::size_t prompt_tokens = m_tokenizer.encode(curated->prompt).size();
@@ -641,6 +761,8 @@ void ContinuousLearner::load_persistent_data() {
     report_load_status("seeds", "Verifying seed curriculum");
     ensure_seed_samples();
 
+    m_retrieval.load_metadata(kRetrievalMetadataPath);
+
     if (fs::exists(kWeightsPath)) {
         report_load_status("weights", "Loading student weights");
         const bool loaded = m_student.base().load_weights(kWeightsPath.string());
@@ -794,6 +916,7 @@ void ContinuousLearner::load_persistent_data() {
             provenance["prompt_hash"] = Json(prompt_hash);
             provenance["teacher_hash"] = Json(std::to_string(std::hash<std::string>{}(sample.teacher_output)));
             sample.provenance = Json(provenance);
+            sample.semantic_tags = compute_semantic_tags(sample);
 
             const std::size_t before_vocab = m_tokenizer.vocab().size();
             m_tokenizer.build_vocab({sample.prompt, sample.teacher_output});
@@ -818,9 +941,25 @@ void ContinuousLearner::load_persistent_data() {
                     retrieval_text.append("\n\n");
                 }
                 retrieval_text.append(stored.teacher_output);
-                m_retrieval.ingest_document(document_id, retrieval_text);
+                stored.semantic_tags = merge_semantic_tags(stored.semantic_tags, m_retrieval.tags_for(document_id));
+                m_retrieval.ingest_document(document_id, retrieval_text, stored.semantic_tags);
                 m_document_to_index[document_id] = index;
+            } else {
+                std::string retrieval_text = stored.prompt;
+                if (!retrieval_text.empty() && !stored.teacher_output.empty()) {
+                    retrieval_text.append("\n\n");
+                }
+                retrieval_text.append(stored.teacher_output);
+                std::hash<std::string> hasher;
+                std::ostringstream oss;
+                oss << "seed:" << index << ':' << hasher(stored.prompt + stored.teacher_output);
+                const std::string fallback_id = oss.str();
+                stored.semantic_tags = merge_semantic_tags(stored.semantic_tags, m_retrieval.tags_for(fallback_id));
+                m_retrieval.ingest_document(fallback_id, retrieval_text, stored.semantic_tags);
+                m_document_to_index[fallback_id] = index;
             }
+
+            m_retrieval.save_metadata(kRetrievalMetadataPath);
 
             m_tokenizer.save_vocab(kVocabPath.string());
             persist_sample(stored);
@@ -906,6 +1045,7 @@ void ContinuousLearner::load_samples_from_file(const std::filesystem::path& path
         }
         if (auto sample = parse_sample_line(line)) {
             CuratedSample sample_value = *sample;
+            sample_value.semantic_tags = compute_semantic_tags(sample_value);
             const std::size_t before_vocab = m_tokenizer.vocab().size();
             m_tokenizer.build_vocab({sample_value.prompt, sample_value.teacher_output});
             if (m_tokenizer.vocab().size() > before_vocab) {
@@ -924,6 +1064,7 @@ void ContinuousLearner::load_samples_from_file(const std::filesystem::path& path
                 retrieval_text.append("\n\n");
             }
             retrieval_text.append(stored.teacher_output);
+            std::string retrieval_id = document_id;
             if (!document_id.empty()) {
                 if (stored.provenance.is_object()) {
                     auto& prov = stored.provenance.as_object();
@@ -931,16 +1072,15 @@ void ContinuousLearner::load_samples_from_file(const std::filesystem::path& path
                         prov["sample_hash"] = Json(document_id);
                     }
                 }
-                m_retrieval.ingest_document(document_id, retrieval_text);
-                m_document_to_index[document_id] = index;
             } else {
                 std::hash<std::string> hasher;
                 std::ostringstream oss;
                 oss << "sample:" << index << ':' << hasher(stored.prompt + stored.teacher_output);
-                const std::string fallback_id = oss.str();
-                m_retrieval.ingest_document(fallback_id, retrieval_text);
-                m_document_to_index[fallback_id] = index;
+                retrieval_id = oss.str();
             }
+            stored.semantic_tags = merge_semantic_tags(stored.semantic_tags, m_retrieval.tags_for(retrieval_id));
+            m_retrieval.ingest_document(retrieval_id, retrieval_text, stored.semantic_tags);
+            m_document_to_index[retrieval_id] = index;
             ++loaded;
             notify_progress(false);
         }
@@ -950,6 +1090,10 @@ void ContinuousLearner::load_samples_from_file(const std::filesystem::path& path
         report_load_status("samples", "No persisted samples were ingested", 0, total_samples_hint);
     } else {
         notify_progress(true);
+    }
+
+    if (loaded > 0) {
+        m_retrieval.save_metadata(kRetrievalMetadataPath);
     }
 
     if (!m_training_data.empty()) {
@@ -969,6 +1113,45 @@ const CuratedSample* ContinuousLearner::recall_sample(const std::string& documen
     return &m_training_data[index];
 }
 
+std::vector<std::string> ContinuousLearner::prompts_for_tags(const std::vector<std::string>& required_tags) const {
+    std::unordered_set<std::string> required;
+    required.reserve(required_tags.size());
+    for (const auto& tag : required_tags) {
+        const std::string normalised = normalise_tag_value(tag);
+        if (!normalised.empty()) {
+            required.insert(normalised);
+        }
+    }
+
+    std::unordered_set<std::string> seen_prompts;
+    std::vector<std::string> prompts;
+    prompts.reserve(m_training_data.size());
+
+    for (const auto& sample : m_training_data) {
+        if (!required.empty()) {
+            std::unordered_set<std::string> sample_tags;
+            sample_tags.reserve(sample.semantic_tags.size());
+            for (const auto& tag : sample.semantic_tags) {
+                const std::string normalised = normalise_tag_value(tag);
+                if (!normalised.empty()) {
+                    sample_tags.insert(normalised);
+                }
+            }
+            bool matches = std::all_of(required.begin(), required.end(), [&](const std::string& tag) {
+                return sample_tags.find(tag) != sample_tags.end();
+            });
+            if (!matches) {
+                continue;
+            }
+        }
+        if (seen_prompts.insert(sample.prompt).second) {
+            prompts.push_back(sample.prompt);
+        }
+    }
+
+    return prompts;
+}
+
 void ContinuousLearner::set_load_status_callback(LoadStatusCallback callback) {
     m_load_status_callback = std::move(callback);
 }
@@ -986,6 +1169,14 @@ void ContinuousLearner::persist_sample(const CuratedSample& sample) {
     obj["teacher_output"] = Json(sample.teacher_output);
     obj["constraints"] = sample.constraints;
     obj["provenance"] = sample.provenance;
+    if (!sample.semantic_tags.empty()) {
+        JsonArray tags;
+        tags.reserve(sample.semantic_tags.size());
+        for (const auto& tag : sample.semantic_tags) {
+            tags.emplace_back(Json(tag));
+        }
+        obj["semantic_tags"] = Json(tags);
+    }
     file << Json(obj).dump() << '\n';
 }
 
