@@ -454,6 +454,7 @@ void ContinuousLearner::load_persistent_data() {
     fs::create_directories(kTrainingDataPath.parent_path(), ec);
 
     ensure_seed_samples();
+    seed_vocab_from_english();
 
     if (fs::exists(kWeightsPath)) {
         m_student.base().load_weights(kWeightsPath.string());
@@ -467,48 +468,78 @@ void ContinuousLearner::load_persistent_data() {
 
     if (m_training_data.empty()) {
         const std::string seed_text = ensure_seed_text();
-        if (!seed_text.empty()) {
-            CuratedSample seed_sample;
-            seed_sample.prompt = "Introduce AlmondAI to a new user.";
-            seed_sample.teacher_output = seed_text;
-            seed_sample.constraints = Json(JsonObject{});
+
+        auto register_seed_sample = [&](const std::string& prompt,
+                                        const std::string& teacher_output,
+                                        const std::string& prompt_hash) {
+            if (prompt.empty() || teacher_output.empty()) {
+                return;
+            }
+
+            CuratedSample sample;
+            sample.prompt = prompt;
+            sample.teacher_output = teacher_output;
+            sample.constraints = Json(JsonObject{});
             JsonObject provenance;
             provenance["source"] = Json("seed");
-            provenance["prompt_hash"] = Json("seed::bootstrap");
-            provenance["teacher_hash"] = Json(std::to_string(std::hash<std::string>{}(seed_sample.teacher_output)));
-            seed_sample.provenance = Json(provenance);
+            provenance["prompt_hash"] = Json(prompt_hash);
+            provenance["teacher_hash"] = Json(std::to_string(std::hash<std::string>{}(sample.teacher_output)));
+            sample.provenance = Json(provenance);
 
             const std::size_t before_vocab = m_tokenizer.vocab().size();
-            m_tokenizer.build_vocab({seed_sample.prompt, seed_sample.teacher_output});
+            m_tokenizer.build_vocab({sample.prompt, sample.teacher_output});
             if (m_tokenizer.vocab().size() > before_vocab) {
                 m_student.base().resize_vocab(m_tokenizer.vocab().size());
             }
 
-            m_training_data.push_back(seed_sample);
+            m_training_data.push_back(sample);
             if (m_eval_data.size() < 16) {
-                m_eval_data.push_back(seed_sample);
+                m_eval_data.push_back(sample);
             }
 
+            CuratedSample& stored = m_training_data.back();
             const std::size_t index = m_training_data.size() - 1;
-            const std::string document_id = derive_document_id(seed_sample, index);
+            const std::string document_id = derive_document_id(stored, index);
             if (!document_id.empty()) {
                 m_curator.mark_seen(document_id);
-                if (seed_sample.provenance.is_object()) {
-                    seed_sample.provenance.as_object()["sample_hash"] = Json(document_id);
+                if (stored.provenance.is_object()) {
+                    stored.provenance.as_object()["sample_hash"] = Json(document_id);
                 }
-                std::string retrieval_text = seed_sample.prompt;
-                if (!retrieval_text.empty() && !seed_sample.teacher_output.empty()) {
+                std::string retrieval_text = stored.prompt;
+                if (!retrieval_text.empty() && !stored.teacher_output.empty()) {
                     retrieval_text.append("\n\n");
                 }
-                retrieval_text.append(seed_sample.teacher_output);
+                retrieval_text.append(stored.teacher_output);
                 m_retrieval.ingest_document(document_id, retrieval_text);
                 m_document_to_index[document_id] = index;
             }
 
             m_tokenizer.save_vocab(kVocabPath.string());
-            persist_sample(seed_sample);
-            train_step(seed_sample);
+            persist_sample(stored);
+            train_step(stored);
+        };
+
+        if (!seed_text.empty()) {
+            register_seed_sample("Introduce AlmondAI to a new user.",
+                                 seed_text,
+                                 "seed::bootstrap");
         }
+
+        register_seed_sample("Offer a warm greeting to someone joining the conversation.",
+                             "Hello! It's great to hear from you. How can I support you today?",
+                             "seed::greeting::hello");
+
+        register_seed_sample("Respond to a user who says 'Good morning'.",
+                             "Good morning! I hope your day is off to a bright and productive start.",
+                             "seed::greeting::good_morning");
+
+        register_seed_sample("Reply when someone thanks AlmondAI for the help.",
+                             "You're very welcome! I'm glad I could assist—let me know if there's anything else you need.",
+                             "seed::greeting::gratitude");
+
+        register_seed_sample("Close a conversation with a friendly farewell.",
+                             "Thanks for chatting with me. If you have more questions later, I'll be here. Take care!",
+                             "seed::greeting::farewell");
     }
 }
 
@@ -624,6 +655,25 @@ std::string ContinuousLearner::derive_document_id(const CuratedSample& sample, s
     std::ostringstream oss;
     oss << "sample:" << index << ':' << hasher(sample.prompt + sample.teacher_output);
     return oss.str();
+}
+
+void ContinuousLearner::seed_vocab_from_english() {
+    std::ifstream english(kEnglishVocabPath);
+    if (!english) {
+        return;
+    }
+    std::ostringstream buffer;
+    buffer << english.rdbuf();
+    const std::string contents = buffer.str();
+    if (contents.empty()) {
+        return;
+    }
+    const std::size_t before_vocab = m_tokenizer.vocab().size();
+    m_tokenizer.build_vocab({contents});
+    if (m_tokenizer.vocab().size() > before_vocab) {
+        m_student.base().resize_vocab(m_tokenizer.vocab().size());
+        m_tokenizer.save_vocab(kVocabPath.string());
+    }
 }
 
 } // namespace almondai
