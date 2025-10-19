@@ -3,6 +3,8 @@
 #include "../include/almondai/json.hpp"
 
 #include <random>
+#include <atomic>
+#include <cstdint>
 #include <chrono>
 #include <cmath>
 #include <algorithm>
@@ -43,8 +45,15 @@ std::vector<std::size_t> json_to_shape(const almondai::Json& value) {
 }
 
 std::mt19937 create_rng() {
-    static std::random_device rd;
-    return std::mt19937(rd());
+    static std::atomic<std::uint64_t> counter{0};
+    const auto now = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+    const std::uint64_t seed = static_cast<std::uint64_t>(now)
+        ^ (counter.fetch_add(1, std::memory_order_relaxed) + 0x9e3779b97f4a7c15ULL);
+    std::seed_seq seq{
+        static_cast<std::seed_seq::result_type>(seed & 0xffffffffu),
+        static_cast<std::seed_seq::result_type>((seed >> 32) & 0xffffffffu)
+    };
+    return std::mt19937(seq);
 }
 
 } // namespace
