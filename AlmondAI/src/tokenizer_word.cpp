@@ -32,10 +32,11 @@ bool attaches_to_previous(std::string_view token) {
         "...",
         "?!",
     };
+    static constexpr std::string_view kCurlyApostrophe{"\xE2\x80\x99", 3};
     if (std::find(kNoSpaceBefore.begin(), kNoSpaceBefore.end(), token) != kNoSpaceBefore.end()) {
         return true;
     }
-    if (!token.empty() && (token.front() == '\'' || token.starts_with("’"))) {
+    if (!token.empty() && (token.front() == '\'' || token.starts_with(kCurlyApostrophe))) {
         return true;
     }
     return false;
@@ -65,7 +66,7 @@ bool is_whitespace(char32_t c) {
 }
 
 bool is_word_character(char32_t c) {
-    if (c == U'\'' || c == U'’') {
+    if (c == U'\'' || c == U'\u2019') {
         return false;
     }
     if (c <= 0x7F) {
@@ -92,7 +93,7 @@ void append_utf8(char32_t code, std::string& out) {
     }
 }
 
-std::string build_punctuation_token(const std::vector<char32_t>& buffer, std::size_t& index) {
+std::string build_punctuation_token(const std::u32string& buffer, std::size_t& index) {
     std::string token;
     append_utf8(buffer[index], token);
     const char32_t current = buffer[index];
@@ -257,7 +258,7 @@ std::vector<std::string> WordTokenizer::tokenize(const std::string& text) const 
     for (std::size_t i = 0; i < buffer.size(); ++i) {
         const char32_t code = buffer[i];
 
-        if (code == U'\'' || code == U'’') {
+        if (code == U'\'' || code == U'\u2019') {
             const bool prev_word = (i > 0) && is_word_character(buffer[i - 1]);
             const bool next_word = (i + 1 < buffer.size()) && is_word_character(buffer[i + 1]);
             if (prev_word && next_word) {
