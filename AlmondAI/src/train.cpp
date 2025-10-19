@@ -37,6 +37,8 @@ Howdy  <eos>
 Nice to meet you  <eos>
 Pleasure to meet you  <eos>
 Good to see you  <eos>
+Welcome back  <eos>
+Long time no see  <eos>
 How are you?  <eos>
 I'm fine. How about you?  <eos>
 Good morning  <eos>
@@ -44,6 +46,9 @@ Good afternoon  <eos>
 Good evening  <eos>
 Good night  <eos>
 What's up  <eos>
+What's up?  <eos>
+Sup  <eos>
+How's it going?  <eos>
 What's new  <eos>
 Not much  <eos>
 
@@ -291,6 +296,16 @@ std::optional<CuratedSample> ContinuousLearner::ingest(const std::string& prompt
         m_document_to_index[prompt_hash] = index;
     }
     persist_sample(m_training_data.back());
+    if (m_log_file.is_open()) {
+        const std::size_t prompt_tokens = m_tokenizer.encode(curated->prompt).size();
+        const std::size_t teacher_tokens = m_tokenizer.encode(teacher_output).size();
+        m_log_file << "[learn::ingest] prompt_hash=" << (prompt_hash.empty() ? std::string{"unknown"} : prompt_hash)
+                   << " | teacher_source=" << (teacher_source.empty() ? std::string{"unspecified"} : teacher_source)
+                   << " | prompt_tokens=" << prompt_tokens
+                   << " | teacher_tokens=" << teacher_tokens
+                   << '\n';
+        m_log_file.flush();
+    }
     return m_training_data.back();
 }
 
@@ -298,14 +313,50 @@ TrainingStats ContinuousLearner::train_step(const CuratedSample& sample) {
     ++m_step;
     TrainingStats stats;
     stats.step = m_step;
+    stats.learning_tags.emplace_back("learn::step.begin");
+    JsonObject begin_event;
+    begin_event["tag"] = Json("learn::step.begin");
+    begin_event["step"] = Json(static_cast<double>(stats.step));
+    if (sample.provenance.is_object()) {
+        const auto& prov = sample.provenance.as_object();
+        if (auto it = prov.find("prompt_hash"); it != prov.end()) {
+            begin_event["prompt_hash"] = it->second;
+        }
+        if (auto it = prov.find("sample_hash"); it != prov.end()) {
+            begin_event["sample_hash"] = it->second;
+        }
+        if (auto it = prov.find("source"); it != prov.end()) {
+            begin_event["teacher_source"] = it->second;
+        }
+    }
+    stats.learning_trace.emplace_back(Json(begin_event));
 
     auto tokens = m_tokenizer.encode(sample.prompt);
+    stats.learning_tags.emplace_back("learn::tokenize.prompt");
+    JsonObject prompt_event;
+    prompt_event["tag"] = Json("learn::tokenize.prompt");
+    prompt_event["tokens"] = Json(static_cast<double>(tokens.size()));
+    prompt_event["characters"] = Json(static_cast<double>(sample.prompt.size()));
+    prompt_event["vocab_size"] = Json(static_cast<double>(m_tokenizer.vocab().size()));
+    stats.learning_trace.emplace_back(Json(prompt_event));
     auto forward = m_student.forward(tokens);
     const auto& logits = forward.logits;
     const auto& hidden = forward.hidden;
     const auto& pre_adapter_hidden = forward.pre_adapter_hidden;
+    stats.learning_tags.emplace_back("learn::forward.pass");
+    JsonObject forward_event;
+    forward_event["tag"] = Json("learn::forward.pass");
+    forward_event["logit_count"] = Json(static_cast<double>(logits.size()));
+    forward_event["hidden_width"] = Json(static_cast<double>(hidden.size()));
+    stats.learning_trace.emplace_back(Json(forward_event));
 
     auto teacher_tokens = m_tokenizer.encode(sample.teacher_output);
+    stats.learning_tags.emplace_back("learn::tokenize.teacher");
+    JsonObject teacher_event;
+    teacher_event["tag"] = Json("learn::tokenize.teacher");
+    teacher_event["tokens"] = Json(static_cast<double>(teacher_tokens.size()));
+    teacher_event["characters"] = Json(static_cast<double>(sample.teacher_output.size()));
+    stats.learning_trace.emplace_back(Json(teacher_event));
     std::unordered_map<int, double> token_counts;
     for (int token : teacher_tokens) {
         if (token < 0) {
@@ -361,11 +412,23 @@ TrainingStats ContinuousLearner::train_step(const CuratedSample& sample) {
     std::vector<double> grad_hidden(hidden.size(), 0.0);
     if (!grad_logits.empty()) {
         grad_hidden = m_student.update(hidden, grad_logits);
+        stats.learning_tags.emplace_back("learn::update.student");
+        JsonObject update_event;
+        update_event["tag"] = Json("learn::update.student");
+        update_event["gradient_dimensions"] = Json(static_cast<double>(grad_logits.size()));
+        update_event["hidden_dimensions"] = Json(static_cast<double>(hidden.size()));
+        stats.learning_trace.emplace_back(Json(update_event));
     }
     if (Adapter* active = m_adapters.active_adapter()) {
         active->apply_gradient(pre_adapter_hidden, grad_hidden);
         active->update_statistics(pre_adapter_hidden);
         stats.adapter_norm = active->norm();
+        stats.learning_tags.emplace_back("learn::update.adapter");
+        JsonObject adapter_event;
+        adapter_event["tag"] = Json("learn::update.adapter");
+        adapter_event["adapter_norm"] = Json(stats.adapter_norm);
+        adapter_event["adapter_name"] = Json(active->name());
+        stats.learning_trace.emplace_back(Json(adapter_event));
     }
 
     auto max_it = std::max_element(probabilities.begin(), probabilities.end());
@@ -396,6 +459,16 @@ TrainingStats ContinuousLearner::train_step(const CuratedSample& sample) {
             stats.teacher_source = src_it->second.as_string();
         }
     }
+    stats.learning_tags.emplace_back("learn::summary");
+    JsonObject summary_event;
+    summary_event["tag"] = Json("learn::summary");
+    summary_event["loss"] = Json(stats.loss);
+    summary_event["accuracy"] = Json(stats.accuracy);
+    summary_event["retrieval_hit_rate"] = Json(stats.retrieval_hit_rate);
+    if (!stats.teacher_source.empty()) {
+        summary_event["teacher_source"] = Json(stats.teacher_source);
+    }
+    stats.learning_trace.emplace_back(Json(summary_event));
     log_stats(stats);
     m_student.base().save_weights(kWeightsPath.string());
 
@@ -408,6 +481,11 @@ TrainingStats ContinuousLearner::evaluate_canary() {
         return stats;
     }
     const auto metrics = m_evaluator.evaluate(m_student, m_eval_data);
+    stats.learning_tags.emplace_back("learn::evaluate.canary");
+    JsonObject evaluate_event;
+    evaluate_event["tag"] = Json("learn::evaluate.canary");
+    evaluate_event["samples_evaluated"] = Json(static_cast<double>(m_eval_data.size()));
+    stats.learning_trace.emplace_back(Json(evaluate_event));
     stats.step = m_step;
     stats.loss = metrics.loss;
     stats.accuracy = metrics.accuracy;
@@ -416,6 +494,14 @@ TrainingStats ContinuousLearner::evaluate_canary() {
         stats.adapter_norm = adapter->norm();
     }
     stats.teacher_source = "evaluation";
+    stats.learning_tags.emplace_back("learn::summary");
+    JsonObject summary_event;
+    summary_event["tag"] = Json("learn::summary");
+    summary_event["loss"] = Json(stats.loss);
+    summary_event["accuracy"] = Json(stats.accuracy);
+    summary_event["retrieval_hit_rate"] = Json(stats.retrieval_hit_rate);
+    summary_event["teacher_source"] = Json(stats.teacher_source);
+    stats.learning_trace.emplace_back(Json(summary_event));
     log_stats(stats);
     return stats;
 }
@@ -509,8 +595,22 @@ void ContinuousLearner::log_stats(const TrainingStats& stats) {
                << " | accuracy=" << stats.accuracy
                << " | adapter_norm=" << stats.adapter_norm
                << " | retrieval_hit_rate=" << stats.retrieval_hit_rate
-               << " | teacher_source=" << (stats.teacher_source.empty() ? std::string{"unknown"} : stats.teacher_source)
-               << '\n';
+               << " | teacher_source=" << (stats.teacher_source.empty() ? std::string{"unknown"} : stats.teacher_source);
+    if (!stats.learning_tags.empty()) {
+        m_log_file << " | tags=[";
+        for (std::size_t i = 0; i < stats.learning_tags.size(); ++i) {
+            if (i != 0) {
+                m_log_file << ' ';
+            }
+            m_log_file << stats.learning_tags[i];
+        }
+        m_log_file << ']';
+    }
+    if (!stats.learning_trace.empty()) {
+        Json trace_json(stats.learning_trace);
+        m_log_file << " | trace=" << trace_json.dump();
+    }
+    m_log_file << '\n';
     m_log_file.flush();
 }
 
@@ -590,53 +690,84 @@ void ContinuousLearner::load_persistent_data() {
                                  "seed::bootstrap");
         }
 
-        register_seed_sample("Offer a warm greeting to someone joining the conversation.",
-                             "Hello! It's great to hear from you. How can I support you today?",
-                             "seed::greeting::hello");
+        struct SeedSpec {
+            const char* prompt;
+            const char* teacher_output;
+            const char* prompt_hash;
+        };
 
-        register_seed_sample("Respond to a user who says 'Hello there'.",
-                             "Hello there! It's a pleasure to connect—what would you like to dive into today?",
-                             "seed::greeting::hello_there");
+        const std::vector<SeedSpec> greeting_samples = {
+            {"Offer a warm greeting to someone joining the conversation.",
+             "Hello! It's great to hear from you. How can I support you today?",
+             "seed::greeting::hello"},
+            {"Respond to a user who says 'Hello there'.",
+             "Hello there! It's a pleasure to connect—what would you like to dive into today?",
+             "seed::greeting::hello_there"},
+            {"Respond to a user who asks 'How are you?'.",
+             "I'm doing great, thanks for asking! How can I help you today?",
+             "seed::greeting::how_are_you"},
+            {"Respond to a user who says 'Good morning'.",
+             "Good morning! I hope your day is off to a bright and productive start.",
+             "seed::greeting::good_morning"},
+            {"Respond to a user who says 'Good afternoon'.",
+             "Good afternoon! I hope everything's going smoothly—let me know what you'd like to tackle next.",
+             "seed::greeting::good_afternoon"},
+            {"Respond to a user who says 'Good evening'.",
+             "Good evening! I hope the rest of your day treats you well—what should we look at next?",
+             "seed::greeting::good_evening"},
+            {"Respond to a user who says 'Good night'.",
+             "Good night! Rest well, and ping me again whenever you're ready to continue.",
+             "seed::greeting::good_night"},
+            {"Respond to a user who says 'Hi'.",
+             "Hi there! How can I assist you today?",
+             "seed::greeting::hi"},
+            {"Respond to a user who says 'Hiya'.",
+             "Hiya! I'm ready when you are—what's on your mind?",
+             "seed::greeting::hiya"},
+            {"Respond to a user who says 'Hey'.",
+             "Hey! Glad you're here. What can I do for you?",
+             "seed::greeting::hey"},
+            {"Respond to a user who says 'Yo'.",
+             "Yo! Always happy to help—what are we working on today?",
+             "seed::greeting::yo"},
+            {"Respond to a user who asks 'How's it going?'.",
+             "It's going great—thanks for checking in! What should we dive into next?",
+             "seed::greeting::hows_it_going"},
+            {"Respond to a user who says 'What's up?'.",
+             "Not much—I'm right here and ready to help. What's on your agenda?",
+             "seed::greeting::whats_up"},
+            {"Respond to a user who says 'Sup?'.",
+             "Sup! I'm dialed in and ready to jump into whatever you need.",
+             "seed::greeting::sup"},
+            {"Respond to a user who says 'Howdy'.",
+             "Howdy! Always nice to hear from you—how can I lend a hand?",
+             "seed::greeting::howdy"},
+            {"Respond to a user who says 'Nice to meet you'.",
+             "Nice to meet you too! Let me know what you're curious about and we'll explore it together.",
+             "seed::greeting::nice_to_meet_you"},
+            {"Respond to a user who says 'Pleasure to meet you'.",
+             "The pleasure's mine! I'm here whenever you want to dig into something.",
+             "seed::greeting::pleasure_to_meet_you"},
+            {"Respond to a user who says 'Long time no see'.",
+             "Long time no see! Let's pick up right where we left off.",
+             "seed::greeting::long_time_no_see"},
+            {"Respond to a user who says 'Welcome back'.",
+             "Thanks! I'm all set to help—what should we get started on?",
+             "seed::greeting::welcome_back"},
+            {"Reply when someone thanks AlmondAI for the help.",
+             "You're very welcome! I'm glad I could assist—let me know if there's anything else you need.",
+             "seed::greeting::gratitude"},
+            {"Close a conversation with a friendly farewell.",
+             "Thanks for chatting with me. If you have more questions later, I'll be here. Take care!",
+             "seed::greeting::farewell"},
+            {"Respond to a user who says 'Goodbye'.",
+             "Goodbye! It was great chatting—feel free to reach out again anytime you need a hand.",
+             "seed::greeting::goodbye"}
+        };
 
-        register_seed_sample("Respond to a user who asks 'How are you?'.",
-                             "I'm doing great, thanks for asking! How can I help you today?",
-                             "seed::greeting::how_are_you");
-
-        register_seed_sample("Respond to a user who says 'Good afternoon'.",
-                             "Good afternoon! I hope everything's going smoothly—let me know what you'd like to tackle next.",
-                             "seed::greeting::good_afternoon");
-
-        register_seed_sample("Respond to a user who says 'Good morning'.",
-                             "Good morning! I hope your day is off to a bright and productive start.",
-                             "seed::greeting::good_morning");
-
-        register_seed_sample("Respond to a user who says 'Goodbye'.",
-                             "Goodbye! It was great chatting—feel free to reach out again anytime you need a hand.",
-                             "seed::greeting::goodbye");
-
-        register_seed_sample("Respond to a user who says 'Hi'.",
-                             "Hi there! How can I assist you today?",
-                             "seed::greeting::hi");
-
-        register_seed_sample("Respond to a user who says 'Hiya'.",
-                             "Hiya! I'm ready when you are—what's on your mind?",
-                             "seed::greeting::hiya");
-
-        register_seed_sample("Respond to a user who says 'Hey'.",
-                             "Hey! Glad you're here. What can I do for you?",
-                             "seed::greeting::hey");
-
-        register_seed_sample("Respond to a user who says 'Yo'.",
-                             "Yo! Always happy to help—what are we working on today?",
-                             "seed::greeting::yo");
-
-        register_seed_sample("Reply when someone thanks AlmondAI for the help.",
-                             "You're very welcome! I'm glad I could assist—let me know if there's anything else you need.",
-                             "seed::greeting::gratitude");
-
-        register_seed_sample("Close a conversation with a friendly farewell.",
-                             "Thanks for chatting with me. If you have more questions later, I'll be here. Take care!",
-                             "seed::greeting::farewell");
+        for (const auto& sample : greeting_samples) {
+            register_seed_sample(sample.prompt, sample.teacher_output, sample.prompt_hash);
+        }
     }
 }
 

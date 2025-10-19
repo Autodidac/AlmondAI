@@ -37,6 +37,10 @@ compiler feedback loops to keep every replica improving between releases.
 - 🔁 **Self-Calibration Loop** – `almondai::ContinuousLearner` orchestrates
   ingestion, retrieval, evaluation, and policy governance with telemetry hooks
   that feed back into the mutation planner driving the next wave of injections.
+- 🏷️ **Explainable Learning Tags** – `ContinuousLearner` now emits
+  `[learn::…]` traces for every ingestion, training, and evaluation step so
+  operators can audit autonomous updates in real time or replay them from the
+  training log.
 - 📚 **Retrieval-Backed Memory** – `almondai::RetrievalIndex` curates history
   with TF-IDF and semantic tags, letting each replica spin up with the most
   relevant narratives and operating procedures.
@@ -144,6 +148,18 @@ you can watch the learner state evolve. After each remote response routed
 through `chat use`, the runtime records whether the teacher was involved,
 validates it against the `PolicyGovernor`, and, when allowed, trains the student
 on the new transcript while reporting loss/accuracy inline.
+
+### Bootstrapped greeting curriculum
+
+On the first launch the runtime now guarantees a rich seed curriculum of
+English greetings, acknowledgements, and friendly farewells. The
+`ContinuousLearner` writes the prompts into `data/training_seed.jsonl` with
+provenance tags such as `seed::greeting::hello`, covering salutations like
+"Hiya", "Sup?", "How's it going?", "Welcome back", and "Long time no see". Each
+seed pairs a conversationally natural teacher reply with the prompt so the local
+student can field everyday introductions before any external data arrives. The
+same samples flow into the retrieval index and evaluation set, letting the
+learner demonstrate conversational competence immediately.
 
 ### Connecting an external LLM
 

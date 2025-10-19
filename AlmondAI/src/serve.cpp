@@ -832,6 +832,17 @@ JsonObject Service::handle_request(const MCPBridge::Request& request) {
         payload["accuracy"] = Json(stats.accuracy);
         payload["adapter_norm"] = Json(stats.adapter_norm);
         payload["retrieval_hit_rate"] = Json(stats.retrieval_hit_rate);
+        if (!stats.learning_tags.empty()) {
+            JsonArray tags_json;
+            tags_json.reserve(stats.learning_tags.size());
+            for (const auto& tag : stats.learning_tags) {
+                tags_json.emplace_back(Json(tag));
+            }
+            payload["learning_tags"] = Json(tags_json);
+        }
+        if (!stats.learning_trace.empty()) {
+            payload["learning_trace"] = Json(stats.learning_trace);
+        }
         payload["teacher_output"] = Json(teacher_output);
         payload["teacher_source"] = Json(teacher_source);
         if (fetched && !teacher.fallback.empty()) {
@@ -855,6 +866,17 @@ JsonObject Service::handle_request(const MCPBridge::Request& request) {
         payload["accuracy"] = Json(stats.accuracy);
         payload["adapter_norm"] = Json(stats.adapter_norm);
         payload["retrieval_hit_rate"] = Json(stats.retrieval_hit_rate);
+        if (!stats.learning_tags.empty()) {
+            JsonArray tags_json;
+            tags_json.reserve(stats.learning_tags.size());
+            for (const auto& tag : stats.learning_tags) {
+                tags_json.emplace_back(Json(tag));
+            }
+            payload["learning_tags"] = Json(tags_json);
+        }
+        if (!stats.learning_trace.empty()) {
+            payload["learning_trace"] = Json(stats.learning_trace);
+        }
         return payload;
     }
 

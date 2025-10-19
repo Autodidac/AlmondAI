@@ -5,7 +5,11 @@ I'm fine. How about you? <|endofseq|>
 Good morning <|endofseq|>
 Good afternoon <|endofseq|>
 Good evening <|endofseq|>
+Good night <|endofseq|>
 What's up <|endofseq|>
+What's up? <|endofseq|>
+Sup <|endofseq|>
+How's it going? <|endofseq|>
 Not much <|endofseq|>
 
 Bonjour (French) <|endofseq|>
@@ -13,6 +17,12 @@ Konnichiwa (Japanese) <|endofseq|>
 As-salamu alaykum (Arabic) → Wa alaykum as-salam <|endofseq|>
 Hola (Spanish) <|endofseq|>
 Sawasdee (Thai) <|endofseq|>
+
+Howdy <|endofseq|>
+Nice to meet you <|endofseq|>
+Pleasure to meet you <|endofseq|>
+Welcome back <|endofseq|>
+Long time no see <|endofseq|>
 
 In Japan, people bow to show respect. <|endofseq|>
 In many Middle Eastern cultures, the left hand is not used for eating. <|endofseq|>
