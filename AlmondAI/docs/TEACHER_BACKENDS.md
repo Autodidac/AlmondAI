@@ -72,6 +72,11 @@ default. Launch the server inside LM Studio, then either:
 - run `chat use lmstudio` from the AlmondAI console to apply the same defaults
   interactively.
 
+While LM Studio remains active every `generate` request will also trigger an
+automatic `train.step`, allowing the student model to learn from the remote
+teacher in real time. The console prints a short status message after each
+generation summarizing whether the update succeeded.
+
 You can still override the endpoint/model manually if you host LM Studio on a
 different port or want to address a specific model ID. Supplying an API key is
 optional because the local server does not require authentication.

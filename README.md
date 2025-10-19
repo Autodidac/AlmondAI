@@ -89,6 +89,7 @@ chat use <kind> [endpoint] [model] [key]
                         `lmstudio`, while other kinds fall back to
                         `ALMONDAI_*` environment variables when arguments are
                         omitted.
+                        With `lmstudio` active, remote replies auto-train the student model.
 chat clear              Return to local student model responses.
 exit | quit             Quit the console.
 ```
@@ -96,7 +97,9 @@ exit | quit             Quit the console.
 `generate` echoes the route and backend used for each response, making it easy to
 confirm whether a remote teacher handled the request. When using
 `chat use lmstudio` you can omit the endpoint and model entirely to connect to
-the defaults LM Studio exposes on `127.0.0.1:1234`.
+the defaults LM Studio exposes on `127.0.0.1:1234`. With LM Studio active the
+console also auto-trains on each remote reply, reporting the outcome after every
+generation so you can monitor the student's progress.
 
 ## Runtime Data & Persistence
 
