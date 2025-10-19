@@ -228,24 +228,37 @@ LocalGenerationOutcome generate_with_student(ContinuousLearner& learner,
                                              const GenerationContext& ctx,
                                              const DecodeSettings& settings) {
     LocalGenerationOutcome outcome;
+    double best_score = -std::numeric_limits<double>::infinity();
+    std::string retrieval_fallback;
+    int retrieval_tokens = 0;
     for (const auto& result : ctx.retrieval) {
         if (result.score <= 0.0) {
             continue;
         }
+        if (result.score <= best_score) {
+            continue;
+        }
+
+        std::string candidate;
         if (!result.document_id.empty()) {
             if (const CuratedSample* sample = learner.recall_sample(result.document_id)) {
                 if (!sample->teacher_output.empty()) {
-                    outcome.output = sample->teacher_output;
-                    outcome.tokens_generated = static_cast<int>(learner.tokenizer().encode(sample->teacher_output).size());
-                    return outcome;
+                    candidate = sample->teacher_output;
+                    retrieval_tokens = static_cast<int>(learner.tokenizer().encode(sample->teacher_output).size());
                 }
             }
         }
-        const std::string decoded = learner.tokenizer().decode(result.tokens);
-        if (!decoded.empty()) {
-            outcome.output = decoded;
-            outcome.tokens_generated = static_cast<int>(result.tokens.size());
-            return outcome;
+        if (candidate.empty()) {
+            const std::string decoded = learner.tokenizer().decode(result.tokens);
+            if (!decoded.empty()) {
+                candidate = decoded;
+                retrieval_tokens = static_cast<int>(result.tokens.size());
+            }
+        }
+
+        if (!candidate.empty()) {
+            best_score = result.score;
+            retrieval_fallback = std::move(candidate);
         }
     }
     std::vector<int> tokens = learner.tokenizer().encode(ctx.augmented_prompt);
@@ -289,11 +302,16 @@ LocalGenerationOutcome generate_with_student(ContinuousLearner& learner,
     outcome.tokens_generated = static_cast<int>(generated.size());
     outcome.output = learner.tokenizer().decode(generated);
     if (outcome.output.empty()) {
-        outcome.fallback_payload = fallback_response(ctx.original_prompt);
-        outcome.used_fallback = true;
-        if (auto it = outcome.fallback_payload.find("output");
-            it != outcome.fallback_payload.end() && it->second.is_string()) {
-            outcome.output = it->second.as_string();
+        if (!retrieval_fallback.empty()) {
+            outcome.output = retrieval_fallback;
+            outcome.tokens_generated = retrieval_tokens;
+        } else {
+            outcome.fallback_payload = fallback_response(ctx.original_prompt);
+            outcome.used_fallback = true;
+            if (auto it = outcome.fallback_payload.find("output");
+                it != outcome.fallback_payload.end() && it->second.is_string()) {
+                outcome.output = it->second.as_string();
+            }
         }
     }
     return outcome;
