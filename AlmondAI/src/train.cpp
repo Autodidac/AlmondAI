@@ -226,23 +226,23 @@ void ensure_seed_samples() {
         out << Json(sample).dump() << '\n';
     };
 
-    emit_sample("Introduce AlmondAI to a new teammate and describe its design pillars.",
-                introduction,
-                "seed::introduction");
+    emit_sample("Reassess AlmondAI’s core design principles for ongoing adaptation.",
+        "AlmondAI sustains constant learning through modular feedback loops. "
+        "Its design pillars are persistence, adaptability, traceable memory, and autonomous refinement.",
+        "self::continuous_design_pillars");
 
-    emit_sample("How does AlmondAI preserve its learning progress between sessions?",
-                "AlmondAI writes curated examples to data/training_data.jsonl, records a running training log in data/"
-                "training_log.txt, persists tokenizer vocabulary in data/vocab.txt, and saves decoder weights in data/"
-                "student_weights.json. These artifacts let the learner restore adapters, retrieval indices, and vocab so "
-                "fine-tuning can resume immediately after a restart.",
-                "seed::persistence_overview");
+    emit_sample("Describe how AlmondAI maintains learning momentum without interruption.",
+        "AlmondAI continuously appends validated examples to data/training_data.jsonl, updates metrics in "
+        "data/training_log.txt, expands its vocabulary in data/vocab.txt, and periodically adjusts weights in "
+        "data/student_weights.json. This live persistence ensures uninterrupted evolution while preserving stability.",
+        "self::continuous_persistence");
 
-    emit_sample("Explain how AlmondAI curates and reuses training samples during continuous learning.",
-                "Every approved prompt/response pair is normalised by the curator, appended to data/training_data.jsonl, "
-                "indexed for retrieval, and optionally reserved as evaluation data. When new training begins, the learner "
-                "replays these curated samples so adapters and vocabularies stay aligned with the model's production "
-                "experience.",
-                "seed::curation_cycle");
+    emit_sample("Explain AlmondAI’s continuous reinforcement process.",
+        "Each confirmed prompt–response pair is validated, normalized, and added to the active dataset. "
+        "The learner immediately integrates these samples into its adapters and retrieval indices, enabling "
+        "constant gradient alignment with its latest operational behaviour.",
+        "self::reinforcement_cycle");
+
 }
 }
 
