@@ -42,6 +42,7 @@ public:
 
     std::vector<PreferencePair> preferences() const;
 
+    void register_curated(CuratedSample& sample);
     void mark_seen(const std::string& sample_id);
 
 private:
@@ -54,7 +55,8 @@ private:
     static bool within_length_band(const std::string& text);
     static bool passes_complexity(const std::string& text);
     static std::string canonical_source(const std::string& teacher_source);
-    static std::string build_sample_id(const std::string& prompt_hash,
+    static std::string normalize_for_hash(const std::string& text);
+    static std::string build_sample_id(const std::string& prompt,
                                        const std::string& teacher_output,
                                        const std::string& teacher_source);
 };
