@@ -950,6 +950,9 @@ int main() {
   retrieve <query>        Search the retrieval index for relevant samples.
   train <file> [epochs=1] [batch=32]
                           Run batched training against a JSONL file.
+  self-learn [loops=1] [delay_ms=0] [options]
+                          Loop through seed prompts, ask the teacher, and train automatically.
+                          Options: shuffle/random, ordered, force, dedupe.
   hot-swap [name]         Promote adapter <name> or rollback when omitted.
   chat use <kind> [endpoint] [model] [key]
                           Switch to an external chat backend. 'lmstudio' pre-fills
@@ -1201,6 +1204,299 @@ int main() {
                 }
                 else {
                     std::cout << "(no response)\n";
+                }
+                continue;
+            }
+
+            if (lowered_command == "self-learn" || lowered_command == "selflearn") {
+                std::vector<std::string> args;
+                std::string token;
+                while (iss >> token) {
+                    args.push_back(token);
+                }
+
+                auto is_integer_token = [](const std::string& text) {
+                    if (text.empty()) {
+                        return false;
+                    }
+                    std::size_t start = 0;
+                    if (text.front() == '+' || text.front() == '-') {
+                        if (text.size() == 1) {
+                            return false;
+                        }
+                        start = 1;
+                    }
+                    const auto offset = static_cast<std::string::difference_type>(start);
+                    return std::all_of(text.begin() + offset, text.end(), [](unsigned char ch) {
+                        return std::isdigit(ch) != 0;
+                    });
+                };
+
+                int loops = 1;
+                int delay_ms = 0;
+                bool shuffle = false;
+                bool force_new = true;
+                bool loops_set = false;
+                bool delay_set = false;
+                bool invalid = false;
+
+                for (const auto& arg : args) {
+                    if (!loops_set && is_integer_token(arg)) {
+                        try {
+                            loops = std::stoi(arg);
+                        }
+                        catch (...) {
+                            std::cout << "Invalid loops value.\n";
+                            invalid = true;
+                            break;
+                        }
+                        loops_set = true;
+                        continue;
+                    }
+                    if (!delay_set && is_integer_token(arg)) {
+                        try {
+                            delay_ms = std::stoi(arg);
+                        }
+                        catch (...) {
+                            std::cout << "Invalid delay value.\n";
+                            invalid = true;
+                            break;
+                        }
+                        delay_set = true;
+                        continue;
+                    }
+
+                    std::string lowered = to_lower(arg);
+                    if (lowered == "shuffle" || lowered == "random") {
+                        shuffle = true;
+                        continue;
+                    }
+                    if (lowered == "ordered") {
+                        shuffle = false;
+                        continue;
+                    }
+                    if (lowered == "force") {
+                        force_new = true;
+                        continue;
+                    }
+                    if (lowered == "dedupe" || lowered == "keep") {
+                        force_new = false;
+                        continue;
+                    }
+
+                    std::cout << "Unknown option '" << arg << "'.\n";
+                    invalid = true;
+                    break;
+                }
+
+                if (invalid) {
+                    continue;
+                }
+
+                if (loops <= 0) {
+                    std::cout << "Loops must be positive.\n";
+                    continue;
+                }
+                if (delay_ms < 0) {
+                    std::cout << "Delay must be non-negative.\n";
+                    continue;
+                }
+
+                JsonObject params;
+                params["loops"] = Json(loops);
+                params["delay_ms"] = Json(delay_ms);
+                params["shuffle"] = Json(shuffle);
+                params["force_new"] = Json(force_new);
+
+                auto response = invoke_service("train.self_loop", Json(params));
+                if (!response) {
+                    std::cout << "(no response)\n";
+                    continue;
+                }
+
+                if (!response->is_object()) {
+                    if (response->is_string()) {
+                        std::cout << response->as_string() << "\n";
+                    }
+                    else {
+                        std::cout << "Unexpected response format.\n";
+                    }
+                    continue;
+                }
+
+                const auto& obj = response->as_object();
+                if (auto out_it = obj.find("output"); out_it != obj.end() && out_it->second.is_string()) {
+                    std::cout << out_it->second.as_string() << "\n";
+                }
+
+                auto get_int_field = [&](const char* key) -> std::optional<int> {
+                    if (auto it = obj.find(key); it != obj.end()) {
+                        if (auto parsed = parse_optional_int(it->second)) {
+                            return parsed;
+                        }
+                    }
+                    return std::nullopt;
+                };
+
+                auto get_double_field = [&](const char* key) -> std::optional<double> {
+                    if (auto it = obj.find(key); it != obj.end()) {
+                        return parse_optional_double(it->second);
+                    }
+                    return std::nullopt;
+                };
+
+                std::optional<int> loops_completed = get_int_field("loops_completed");
+                std::optional<int> loops_requested = get_int_field("loops_requested");
+                std::optional<int> processed = get_int_field("processed");
+                std::optional<int> trained = get_int_field("trained");
+                std::optional<int> skipped = get_int_field("skipped");
+                std::optional<int> unavailable = get_int_field("teacher_unavailable");
+                std::optional<double> avg_loss = get_double_field("average_loss");
+                std::optional<double> avg_accuracy = get_double_field("average_accuracy");
+
+                bool printed_summary = false;
+                if (loops_completed || loops_requested || processed || trained || skipped || unavailable) {
+                    std::cout << "Summary: ";
+                    printed_summary = true;
+                    bool first_field = true;
+                    if (loops_completed || loops_requested) {
+                        std::cout << "loops=";
+                        if (loops_completed) {
+                            std::cout << *loops_completed;
+                        }
+                        if (loops_requested) {
+                            if (!loops_completed || *loops_requested != *loops_completed) {
+                                std::cout << '/' << *loops_requested;
+                            }
+                        }
+                        first_field = false;
+                    }
+                    auto append_field = [&](const char* label, const std::optional<int>& value) {
+                        if (!value) {
+                            return;
+                        }
+                        if (!first_field) {
+                            std::cout << ", ";
+                        }
+                        first_field = false;
+                        std::cout << label << '=' << *value;
+                    };
+                    append_field("processed", processed);
+                    append_field("trained", trained);
+                    append_field("skipped", skipped);
+                    append_field("unavailable", unavailable);
+                    std::cout << '\n';
+                }
+                if (avg_loss || avg_accuracy) {
+                    std::vector<std::string> metrics;
+                    if (avg_loss) {
+                        std::ostringstream oss;
+                        oss << std::fixed << std::setprecision(4) << *avg_loss;
+                        metrics.push_back("loss=" + oss.str());
+                    }
+                    if (avg_accuracy) {
+                        std::ostringstream oss;
+                        oss << std::fixed << std::setprecision(3) << *avg_accuracy;
+                        metrics.push_back("acc=" + oss.str());
+                    }
+                    if (!metrics.empty()) {
+                        std::cout << "Averages: ";
+                        for (std::size_t i = 0; i < metrics.size(); ++i) {
+                            if (i != 0) {
+                                std::cout << ", ";
+                            }
+                            std::cout << metrics[i];
+                        }
+                        std::cout << '\n';
+                    }
+                }
+
+                auto print_event_log = [&]() {
+                    auto events_it = obj.find("events");
+                    if (events_it == obj.end() || !events_it->second.is_array()) {
+                        return;
+                    }
+                    const auto& events = events_it->second.as_array();
+                    if (events.empty()) {
+                        return;
+                    }
+                    std::cout << "Event log:\n";
+                    for (const auto& entry : events) {
+                        if (!entry.is_object()) {
+                            continue;
+                        }
+                        const auto& event = entry.as_object();
+                        std::optional<int> iteration = std::nullopt;
+                        if (auto it = event.find("iteration"); it != event.end()) {
+                            iteration = parse_optional_int(it->second);
+                        }
+                        std::string status;
+                        if (auto it = event.find("status"); it != event.end() && it->second.is_string()) {
+                            status = it->second.as_string();
+                        }
+                        std::string route;
+                        if (auto it = event.find("teacher_route"); it != event.end() && it->second.is_string()) {
+                            route = it->second.as_string();
+                        }
+                        std::string source;
+                        if (auto it = event.find("teacher_source"); it != event.end() && it->second.is_string()) {
+                            source = it->second.as_string();
+                        }
+                        std::string prompt_text;
+                        if (auto it = event.find("prompt"); it != event.end() && it->second.is_string()) {
+                            prompt_text = it->second.as_string();
+                        }
+                        std::string snippet = prompt_text;
+                        const std::size_t max_snippet = 80;
+                        if (snippet.size() > max_snippet) {
+                            snippet = snippet.substr(0, max_snippet - 3) + "...";
+                        }
+                        auto loss = event.find("loss");
+                        std::optional<double> loss_value = (loss != event.end()) ? parse_optional_double(loss->second) : std::nullopt;
+                        auto acc = event.find("accuracy");
+                        std::optional<double> acc_value = (acc != event.end()) ? parse_optional_double(acc->second) : std::nullopt;
+
+                        std::cout << "- ";
+                        if (iteration) {
+                            std::cout << "[#" << *iteration << "] ";
+                        }
+                        if (!status.empty()) {
+                            std::cout << status;
+                        } else {
+                            std::cout << "(unknown)";
+                        }
+                        if (!route.empty()) {
+                            std::cout << " via " << route;
+                        }
+                        if (!source.empty()) {
+                            std::cout << " source=" << source;
+                        }
+                        if (loss_value) {
+                            std::ostringstream metric;
+                            metric << std::fixed << std::setprecision(4) << *loss_value;
+                            std::cout << " loss=" << metric.str();
+                        }
+                        if (acc_value) {
+                            std::ostringstream metric;
+                            metric << std::fixed << std::setprecision(3) << *acc_value;
+                            std::cout << " acc=" << metric.str();
+                        }
+                        if (!snippet.empty()) {
+                            std::cout << " | " << snippet;
+                        }
+                        std::cout << '\n';
+                    }
+                    if (auto truncated_it = obj.find("events_truncated"); truncated_it != obj.end()) {
+                        if (parse_bool_value(truncated_it->second, false)) {
+                            std::cout << "(event log truncated)\n";
+                        }
+                    }
+                };
+
+                print_event_log();
+
+                if (!printed_summary && !avg_loss && !avg_accuracy) {
+                    std::cout << "Self-learning request completed.\n";
                 }
                 continue;
             }
