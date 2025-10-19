@@ -3,13 +3,14 @@ AlmondShell Completion Roadmap Prompt
 
 Objective
 ---------
-Create a production-ready release of the AlmondShell runtime that can bootstrap AlmondEngine end-to-end across supported platforms.
+Create a production-ready release of the AlmondShell runtime that can bootstrap AlmondEngine end-to-end across supported platforms while embracing the C++23 toolchain upgrade (and preparing for C++26) and coordinating with the "AI next door" companion process that will eventually co-own authoring workflows.
 
 Guiding Principles
 ------------------
 1. Preserve the engine's static, header-first architecture.
 2. Prioritise developer ergonomics: fast iteration, self-diagnosing tooling, and rich documentation.
 3. Maintain deterministic builds with reproducible dependency management via vcpkg and CMake.
+4. Keep scripting, compiler-debug feedback, and automated tests in lock-step so the engine can participate in self-replicating source generation loops alongside the companion AI.
 
 Execution Plan
 --------------
@@ -84,7 +85,9 @@ Objective
 ---------
 Evolve the AlmondAI research runtime into a resilient, continuously-learning
 assistant with reliable service surfaces, reproducible training flows, and
-documented extension points.
+documented extension points while cultivating a self-updating LLM that can
+analyse entire repositories, borrow insights from external LLM outputs, and
+collaborate with the companion "AI next door" co-processor.
 
 Guiding Principles
 ------------------
@@ -94,6 +97,9 @@ Guiding Principles
    telemetry and surface persistent artefacts for inspection.
 3. Treat the Model Context Protocol bridge as the canonical API surface and keep
    tooling scripted through it.
+4. Drive a lock-step, scriptable improvement loop that fuses console compiler
+   diagnostics, automated tests, and external transcript ingestion into
+   near-complete source replication workflows.
 
 Execution Plan
 --------------

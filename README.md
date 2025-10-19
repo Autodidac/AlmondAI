@@ -1,10 +1,28 @@
 # AlmondAI
 
-**AlmondAI** is a modular C++20 research runtime for iterating on lightweight
-language-model experiments. The library exposes tokenizer tooling, adapter-aware
-decoder primitives, retrieval utilities, and an MCP-facing service loop so
-experiments can move from notebooks to long-running services without rebuilding
-the scaffolding each time.
+**AlmondAI** is a modular C++23 research runtime (migrating its previous C++20
+codebase toward full C++26 compliance) for iterating on lightweight
+language-model experiments. The project is evolving into a self-replicating,
+lock-step software engine paired with an "AI next door" co-processor that will
+eventually integrate directly into the runtime. The goal is to operate a
+self-updating LLM that analyses its own sources, siphons curated telemetry and
+external LLM transcripts, and applies scripted testing plus compiler debug
+feedback to continually improve.
+
+## Long-term Vision
+
+- 🔄 **Self-Improving Engine** – Continuous compiler-driven diagnostics and
+  scripted regression suites feed back into the runtime so it can iteratively
+  refine generated source while staying in sync with neighbouring AI services.
+- 🤖 **Integrated Companion AI** – A dedicated assistant process (the "AI next
+  door") will graduate into a first-class runtime component, sharing datasets,
+  training signals, and roadmap orchestration with AlmondAI.
+- 🧬 **Source-Aware Learning** – The learner aims to replicate and extend
+  high-quality codebases by analysing repositories end-to-end, harvesting
+  lessons from other LLM outputs, and promoting successful diffs automatically.
+- 🚀 **Standards Upgrade Path** – Ongoing modernization embraces C++23 features
+  today with a clear plan to unlock upcoming C++26 facilities as toolchains
+  mature.
 
 ## Capabilities
 
