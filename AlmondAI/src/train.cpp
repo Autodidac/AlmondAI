@@ -22,6 +22,7 @@ const std::filesystem::path kSeedDataPath{"data/training_seed.jsonl"};
 const std::filesystem::path kVocabPath{"data/vocab.txt"};
 const std::filesystem::path kWeightsPath{"data/student_weights.json"};
 const std::filesystem::path kSeedTextPath{"data/seed.txt"};
+const std::filesystem::path kEnglishVocabPath{"data/english.txt"};
 
 std::optional<CuratedSample> parse_sample_line(const std::string& line) {
     if (line.empty()) {
@@ -73,8 +74,17 @@ std::string ensure_seed_text() {
 
     if (need_default) {
         std::ofstream out(kSeedTextPath, std::ios::trunc);
-        out << "AlmondAI is a self-evolving C++23 AI engine runtime that learns from its own source code, compiler feedback, and user interaction. "
-               "It integrates AI directly into the software loop, enabling self-analysis, self-rebuilds, and continuous evolution across its modules.";
+        if (!out) {
+            return std::string();
+        }
+
+        std::ifstream english(kEnglishVocabPath);
+        if (english) {
+            out << english.rdbuf();
+        } else {
+            out << "AlmondAI is a self-evolving C++23 AI engine runtime that learns from its own source code, compiler feedback, and user interaction. "
+                   "It integrates AI directly into the software loop, enabling self-analysis, self-rebuilds, and continuous evolution across its modules.";
+        }
     }
 
     std::ifstream in(kSeedTextPath);
