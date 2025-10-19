@@ -7,6 +7,7 @@
 #include "retrieval.hpp"
 #include "eval.hpp"
 #include "governor.hpp"
+#include "json.hpp"
 
 #include <optional>
 #include <fstream>
@@ -14,6 +15,7 @@
 #include <functional>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace almondai {
 
@@ -24,6 +26,8 @@ struct TrainingStats {
     double adapter_norm = 0.0;
     double retrieval_hit_rate = 0.0;
     std::string teacher_source;
+    std::vector<std::string> learning_tags;
+    JsonArray learning_trace;
 };
 
 class ContinuousLearner {

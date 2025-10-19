@@ -21,11 +21,19 @@ runtime adaptive without sacrificing deterministic builds.
 - **ContinuousLearner** orchestrates ingestion, retrieval, evaluation, and
   policy governance, persisting each decision so the runtime can replay and
   audit its own behaviour.
+- **Learning Trace Ledger** captures the `[learn::…]` tags that
+  `ContinuousLearner` emits during ingestion, tokenisation, gradient updates, and
+  evaluation. Every autonomous action is journaled with step-by-step metadata so
+  operators can inspect the full reasoning trail.
 - **AdapterManager** maintains multiple adapter stacks, allowing rapid
   promotion or rollback of new behaviours while keeping a stable base model.
 - **RetrievalIndex** supplies grounded context from curated telemetry, recent
   transcripts, and documentation snapshots so generations remain anchored to the
   latest system state.
+- **Seed Curriculum** primes the learner with hard-coded greeting exchanges
+  (for example prompts tagged `seed::greeting::hello` or
+  `seed::greeting::welcome_back`) so the runtime can hold natural conversations
+  before connecting to external teachers.
 
 ## Governance and Safety
 
