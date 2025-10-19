@@ -25,8 +25,14 @@ public:
 
     const ModelConfig& config() const noexcept { return m_config; }
 
-    std::vector<double> forward(const std::vector<int>& tokens) const;
-    void apply_gradients(const std::vector<double>& gradient);
+    struct ForwardResult {
+        std::vector<double> logits;
+        std::vector<double> hidden;
+    };
+
+    ForwardResult forward(const std::vector<int>& tokens) const;
+    std::vector<double> apply_gradients(const std::vector<double>& hidden,
+                                       const std::vector<double>& grad_logits);
 
     const std::vector<Tensor>& weights() const noexcept { return m_weights; }
 
@@ -49,8 +55,9 @@ class StudentModel {
 public:
     explicit StudentModel(BaseDecoder base);
 
-    std::vector<double> forward(const std::vector<int>& tokens) const;
-    void update(const std::vector<double>& gradient);
+    BaseDecoder::ForwardResult forward(const std::vector<int>& tokens) const;
+    std::vector<double> update(const std::vector<double>& hidden,
+                               const std::vector<double>& grad_logits);
 
     BaseDecoder& base() noexcept { return m_base; }
     const BaseDecoder& base() const noexcept { return m_base; }

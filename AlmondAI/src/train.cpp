@@ -9,6 +9,10 @@
 #include <fstream>
 #include <chrono>
 #include <random>
+#include <cmath>
+#include <numeric>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace almondai {
 
@@ -145,28 +149,94 @@ TrainingStats ContinuousLearner::train_step(const CuratedSample& sample) {
     stats.step = m_step;
 
     auto tokens = m_tokenizer.encode(sample.prompt);
-    auto logits = m_student.forward(tokens);
-    auto teacher_tokens = m_tokenizer.encode(sample.teacher_output);
-    const int target = teacher_tokens.size() > 1 ? teacher_tokens[1] : 0;
-    const double predicted = logits[target % logits.size()];
-    const auto max_it = std::max_element(logits.begin(), logits.end());
-    const double max_logit = *max_it;
-    const double error = max_logit - predicted;
+    auto forward = m_student.forward(tokens);
+    const auto& logits = forward.logits;
+    const auto& hidden = forward.hidden;
 
-    std::vector<double> gradient(m_student.base().config().hidden_size, error);
-    m_student.update(gradient);
+    auto teacher_tokens = m_tokenizer.encode(sample.teacher_output);
+    std::unordered_map<int, double> token_counts;
+    for (int token : teacher_tokens) {
+        if (token < 0) {
+            continue;
+        }
+        const std::size_t index = static_cast<std::size_t>(token);
+        if (index >= logits.size()) {
+            continue;
+        }
+        token_counts[token] += 1.0;
+    }
+    if (token_counts.empty() && !logits.empty()) {
+        token_counts[0] = 1.0;
+    }
+
+    const double total = std::accumulate(token_counts.begin(), token_counts.end(), 0.0,
+                                         [](double sum, const auto& entry) {
+                                             return sum + entry.second;
+                                         });
+    std::vector<double> target_distribution(logits.size(), 0.0);
+    for (const auto& [token, count] : token_counts) {
+        const std::size_t index = static_cast<std::size_t>(token);
+        target_distribution[index] = count / (total > 0.0 ? total : 1.0);
+    }
+
+    std::vector<double> probabilities(logits.size(), 0.0);
+    double normaliser = 0.0;
+    double max_logit = logits.empty() ? 0.0 : *std::max_element(logits.begin(), logits.end());
+    for (std::size_t i = 0; i < logits.size(); ++i) {
+        const double value = std::exp(logits[i] - max_logit);
+        probabilities[i] = value;
+        normaliser += value;
+    }
+    if (normaliser > 0.0) {
+        for (double& probability : probabilities) {
+            probability /= normaliser;
+        }
+    } else if (!probabilities.empty()) {
+        const double uniform = 1.0 / static_cast<double>(probabilities.size());
+        std::fill(probabilities.begin(), probabilities.end(), uniform);
+    }
+
+    constexpr double kEpsilon = 1e-12;
+    std::vector<double> grad_logits(logits.size(), 0.0);
+    double loss = 0.0;
+    for (std::size_t i = 0; i < logits.size(); ++i) {
+        grad_logits[i] = probabilities[i] - target_distribution[i];
+        if (target_distribution[i] > 0.0) {
+            loss -= target_distribution[i] * std::log(std::max(probabilities[i], kEpsilon));
+        }
+    }
+
+    std::vector<double> grad_hidden(hidden.size(), 0.0);
+    if (!grad_logits.empty()) {
+        grad_hidden = m_student.update(hidden, grad_logits);
+    }
     if (Adapter* active = m_adapters.active_adapter()) {
-        active->apply_gradient(gradient);
-        active->update_statistics(gradient);
+        active->apply_gradient(grad_hidden);
+        active->update_statistics(grad_hidden);
         stats.adapter_norm = active->norm();
     }
 
-    std::vector<int> decoded{static_cast<int>(std::distance(logits.begin(), max_it))};
+    auto max_it = std::max_element(probabilities.begin(), probabilities.end());
+    std::vector<int> decoded;
+    if (max_it != probabilities.end()) {
+        decoded.push_back(static_cast<int>(std::distance(probabilities.begin(), max_it)));
+    }
     std::string student_output = m_tokenizer.decode(decoded);
     m_curator.record_student_response(sample.prompt, student_output, sample);
 
-    stats.loss = error * error;
-    stats.accuracy = max_logit <= predicted ? 1.0 : 0.0;
+    std::unordered_set<int> teacher_vocab;
+    for (const auto& [token, _] : token_counts) {
+        (void)_;
+        teacher_vocab.insert(token);
+    }
+
+    stats.loss = loss;
+    if (max_it != probabilities.end()) {
+        const int prediction = static_cast<int>(std::distance(probabilities.begin(), max_it));
+        stats.accuracy = teacher_vocab.count(prediction) ? 1.0 : 0.0;
+    } else {
+        stats.accuracy = 0.0;
+    }
     stats.retrieval_hit_rate = m_retrieval.hit_rate();
     if (sample.provenance.is_object()) {
         const auto& prov = sample.provenance.as_object();

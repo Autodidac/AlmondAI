@@ -235,7 +235,8 @@ LocalGenerationOutcome generate_with_student(ContinuousLearner& learner,
     const int eos_token = learner.tokenizer().token_id("<eos>");
 
     for (int step = 0; step < settings.max_tokens; ++step) {
-        std::vector<double> logits = learner.student().forward(tokens);
+        auto forward = learner.student().forward(tokens);
+        std::vector<double> logits = std::move(forward.logits);
         int next = sample_token(logits, settings, generated.size(), eos_token, rng);
         if (next == eos_token) {
             if (generated.size() >= static_cast<std::size_t>(settings.min_tokens)) {

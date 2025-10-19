@@ -73,11 +73,14 @@ BaseDecoder::BaseDecoder(ModelConfig config) : m_config(config) {
     }
 }
 
-std::vector<double> BaseDecoder::forward(const std::vector<int>& tokens) const {
+BaseDecoder::ForwardResult BaseDecoder::forward(const std::vector<int>& tokens) const {
+    ForwardResult result;
+    result.hidden.assign(m_config.hidden_size, 0.0);
+    result.logits.assign(m_config.vocab_size, 0.0);
+
     if (tokens.empty()) {
-        return std::vector<double>(m_config.vocab_size, 0.0);
+        return result;
     }
-    std::vector<double> hidden(m_config.hidden_size, 0.0);
     const auto& embedding = m_weights.front().vector();
     for (int token : tokens) {
         std::size_t index = static_cast<std::size_t>(std::max(token, 0));
@@ -85,36 +88,35 @@ std::vector<double> BaseDecoder::forward(const std::vector<int>& tokens) const {
             index = 0;
         }
         for (std::size_t h = 0; h < m_config.hidden_size; ++h) {
-            hidden[h] += embedding[index * m_config.hidden_size + h];
+            result.hidden[h] += embedding[index * m_config.hidden_size + h];
         }
     }
     const double inv = 1.0 / static_cast<double>(tokens.size());
-    for (double& value : hidden) {
+    for (double& value : result.hidden) {
         value *= inv;
     }
 
     for (std::size_t layer = 1; layer <= m_config.num_layers; ++layer) {
-        hidden = forward_layer(layer, hidden);
+        result.hidden = forward_layer(layer, result.hidden);
     }
 
     if (m_active_adapter != nullptr) {
-        const std::vector<double> delta = m_active_adapter->project(hidden);
-        for (std::size_t i = 0; i < hidden.size(); ++i) {
-            hidden[i] += delta[i];
+        const std::vector<double> delta = m_active_adapter->project(result.hidden);
+        for (std::size_t i = 0; i < result.hidden.size(); ++i) {
+            result.hidden[i] += delta[i];
         }
     }
 
     const Tensor& projection = m_weights.back();
-    std::vector<double> logits(m_config.vocab_size, 0.0);
     const auto& proj_data = projection.vector();
     for (std::size_t v = 0; v < m_config.vocab_size; ++v) {
         double sum = 0.0;
         for (std::size_t h = 0; h < m_config.hidden_size; ++h) {
-            sum += proj_data[h * m_config.vocab_size + v] * hidden[h];
+            sum += proj_data[h * m_config.vocab_size + v] * result.hidden[h];
         }
-        logits[v] = sum;
+        result.logits[v] = sum;
     }
-    return logits;
+    return result;
 }
 
 std::vector<double> BaseDecoder::forward_layer(std::size_t layer, const std::vector<double>& input) const {
@@ -131,18 +133,22 @@ std::vector<double> BaseDecoder::forward_layer(std::size_t layer, const std::vec
     return output;
 }
 
-void BaseDecoder::apply_gradients(const std::vector<double>& gradient) {
-    if (gradient.size() != m_config.hidden_size) {
-        return;
+std::vector<double> BaseDecoder::apply_gradients(const std::vector<double>& hidden,
+                                                 const std::vector<double>& grad_logits) {
+    if (hidden.size() != m_config.hidden_size || grad_logits.size() != m_config.vocab_size) {
+        return std::vector<double>(m_config.hidden_size, 0.0);
     }
     Tensor& projection = m_weights.back();
     auto& proj = projection.vector();
+    std::vector<double> grad_hidden(m_config.hidden_size, 0.0);
     for (std::size_t h = 0; h < m_config.hidden_size; ++h) {
         for (std::size_t v = 0; v < m_config.vocab_size; ++v) {
             const std::size_t idx = h * m_config.vocab_size + v;
-            proj[idx] -= m_config.learning_rate * gradient[h];
+            grad_hidden[h] += proj[idx] * grad_logits[v];
+            proj[idx] -= m_config.learning_rate * hidden[h] * grad_logits[v];
         }
     }
+    return grad_hidden;
 }
 
 void BaseDecoder::attach_adapter(const Adapter* adapter) {
@@ -293,12 +299,13 @@ void BaseDecoder::resize_vocab(std::size_t new_vocab_size) {
 
 StudentModel::StudentModel(BaseDecoder base) : m_base(std::move(base)) {}
 
-std::vector<double> StudentModel::forward(const std::vector<int>& tokens) const {
+BaseDecoder::ForwardResult StudentModel::forward(const std::vector<int>& tokens) const {
     return m_base.forward(tokens);
 }
 
-void StudentModel::update(const std::vector<double>& gradient) {
-    m_base.apply_gradients(gradient);
+std::vector<double> StudentModel::update(const std::vector<double>& hidden,
+                                         const std::vector<double>& grad_logits) {
+    return m_base.apply_gradients(hidden, grad_logits);
 }
 
 } // namespace almondai
