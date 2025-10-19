@@ -5,215 +5,715 @@
 <title>AlmondAI ↔ LM Studio — Chat UI</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
-  :root { color-scheme: dark; --bg:#0b0d10; --fg:#e6edf3; --muted:#a0aec0; --ring:#334155; --accent:#7c3aed; --accent2:#4f46e5; --user:#1f2937; --assistant:#111827;}
-  *{box-sizing:border-box}
-  html,body{height:100%}
-  body{margin:0;background:#101216;color:var(--fg);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-  .app{display:grid;grid-template-rows:auto 1fr auto;max-width:980px;margin:0 auto;height:100%}
-  header{position:sticky;top:0;background:rgba(16,18,22,.85);backdrop-filter:saturate(1.2) blur(8px);border-bottom:1px solid var(--ring);padding:.75rem 1rem;display:flex;gap:.75rem;align-items:center}
-  header .title{font-weight:700}
-  header .pill{display:flex;gap:.5rem;align-items:center;border:1px solid var(--ring);border-radius:999px;padding:.35rem .6rem;font-size:.85rem;color:var(--muted)}
-  header input{background:transparent;border:none;color:inherit;min-width:260px;outline:none}
-  header button, .toolbar button{border:1px solid var(--ring);background:#0f1320;border-radius:8px;color:inherit;padding:.35rem .6rem;cursor:pointer}
-  header .settings{margin-left:auto}
-  .chat{padding:1rem;overflow:auto;scroll-behavior:smooth}
-  .msg{display:flex;gap:.75rem;margin:0 auto 1rem;max-width:860px}
-  .avatar{width:28px;height:28px;border-radius:6px;display:grid;place-items:center;font-weight:700;font-size:.8rem;background:#222}
-  .user .avatar{background:#0b4}
-  .assistant .avatar{background:#444}
-  .bubble{flex:1;border:1px solid var(--ring);border-radius:12px;padding:.85rem;background:var(--assistant)}
-  .user .bubble{background:var(--user)}
-  .bubble pre{white-space:pre-wrap;word-wrap:break-word;margin:0}
-  .bubble .meta{font-size:.75rem;color:var(--muted);margin-bottom:.25rem}
-  .toolbar{display:flex;gap:.5rem;align-items:center;margin:.35rem 0 0 40px}
-  .toolbar button{font-size:.8rem}
-  .hidden{display:none}
-  .composer{border-top:1px solid var(--ring);padding:.75rem 1rem;background:linear-gradient(180deg,rgba(16,18,22,.9),rgba(16,18,22,1))}
-  .row{display:flex;gap:.75rem;align-items:flex-end;max-width:860px;margin:0 auto}
-  .grow{flex:1}
-  textarea{width:100%;min-height:48px;max-height:220px;resize:none;border:1px solid var(--ring);border-radius:12px;background:var(--bg);color:inherit;padding:.75rem .9rem;font-size:1rem;line-height:1.35}
-  textarea:focus{outline:2px solid transparent;border-color:#5b6bff;box-shadow:0 0 0 3px rgba(99,102,241,.25)}
-  .send{border:none;border-radius:12px;background:linear-gradient(135deg,var(--accent2),var(--accent));color:#fff;padding:.7rem 1rem;cursor:pointer;min-width:98px}
-  .send:disabled{opacity:.6;cursor:progress}
-  details.panel{max-width:860px;margin:.35rem auto 0}
-  details.panel > summary{cursor:pointer;list-style:none;font-size:.9rem;color:var(--muted)}
-  details.panel > summary::-webkit-details-marker{display:none}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin-top:.5rem}
-  .grid label{font-size:.85rem;color:var(--muted)}
-  .grid input{width:100%;border:1px solid var(--ring);border-radius:8px;background:var(--bg);color:inherit;padding:.45rem .55rem}
-  .error{color:#f97272;margin:.4rem 0}
-  .status{color:var(--muted);font-size:.85rem;margin-left:.5rem}
-  .copy{float:right;font-size:.75rem;opacity:.8}
+  :root {
+    color-scheme: dark;
+    --bg: #05070c;
+    --panel: #0f172a;
+    --fg: #f3f5ff;
+    --muted: #97a1bf;
+    --ring: #1f2b44;
+    --accent: #5f6cf6;
+    --accent2: #9f57ff;
+    --user: #182235;
+    --assistant: #101827;
+    --border-radius: 16px;
+    --shadow: 0 24px 60px -32px rgba(9, 12, 26, 0.9);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(circle at 15% -10%, rgba(97, 110, 246, 0.18), transparent 55%),
+      radial-gradient(circle at 85% -5%, rgba(159, 87, 255, 0.16), transparent 60%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    line-height: 1.5;
+  }
+
+  .app {
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 0 1.25rem;
+    height: 100%;
+  }
+
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    margin: 1.5rem 0 1rem;
+    border: 1px solid rgba(42, 58, 92, 0.75);
+    border-radius: calc(var(--border-radius) + 6px);
+    background: linear-gradient(160deg, rgba(16, 22, 38, 0.9), rgba(11, 17, 30, 0.92));
+    backdrop-filter: saturate(1.1) blur(12px);
+    padding: 1rem 1.35rem;
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    box-shadow: var(--shadow);
+  }
+
+  header .title {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  header .title span:first-child {
+    font-weight: 700;
+    font-size: 1.05rem;
+  }
+
+  header .subtitle {
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+
+  .status-pill {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.5rem 0.8rem;
+    border-radius: 999px;
+    border: 1px solid rgba(45, 64, 98, 0.8);
+    background: rgba(17, 24, 39, 0.9);
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+
+  .status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    background: #3ccf91;
+    box-shadow: 0 0 12px rgba(60, 207, 145, 0.55);
+    transition: background 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .status-dot[data-state="busy"] {
+    background: #facc15;
+    box-shadow: 0 0 12px rgba(250, 204, 21, 0.6);
+  }
+
+  .status-dot[data-state="error"] {
+    background: #f87171;
+    box-shadow: 0 0 14px rgba(248, 113, 113, 0.65);
+  }
+
+  header button {
+    border: 1px solid transparent;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 14px;
+    color: #fff;
+    padding: 0.55rem 1rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    box-shadow: 0 12px 22px -16px rgba(102, 112, 255, 0.85);
+  }
+
+  header button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 18px 26px -18px rgba(110, 122, 255, 0.9);
+  }
+
+  header button:active {
+    transform: translateY(0);
+  }
+
+  .chat {
+    padding: 0 0 1.5rem;
+    overflow: auto;
+    scroll-behavior: smooth;
+  }
+
+  .msg {
+    display: flex;
+    gap: 0.9rem;
+    margin: 0 auto 1.35rem;
+    max-width: 840px;
+  }
+
+  .avatar {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    font-weight: 700;
+    font-size: 0.8rem;
+    color: #fff;
+    background: linear-gradient(135deg, rgba(89, 109, 255, 0.35), rgba(145, 74, 255, 0.38));
+    box-shadow: 0 16px 28px -20px rgba(89, 109, 255, 0.85);
+  }
+
+  .user .avatar {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.8), rgba(16, 185, 129, 0.7));
+    box-shadow: 0 18px 30px -20px rgba(16, 185, 129, 0.9);
+  }
+
+  .assistant .avatar {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.7), rgba(37, 99, 235, 0.55));
+    box-shadow: 0 18px 30px -20px rgba(59, 130, 246, 0.85);
+  }
+
+  .bubble {
+    flex: 1;
+    border: 1px solid rgba(60, 80, 122, 0.65);
+    border-radius: var(--border-radius);
+    padding: 1.05rem 1.2rem;
+    background: var(--assistant);
+    box-shadow: var(--shadow);
+    position: relative;
+  }
+
+  .user .bubble { background: var(--user); }
+
+  .bubble pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    margin: 0;
+    font-size: 0.97rem;
+  }
+
+  .bubble .meta {
+    font-size: 0.72rem;
+    color: var(--muted);
+    margin-bottom: 0.45rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .copy {
+    position: absolute;
+    top: 0.9rem;
+    right: 1rem;
+    font-size: 0.72rem;
+    opacity: 0.75;
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .copy:hover { opacity: 1; }
+
+  .composer {
+    border-top: 1px solid rgba(36, 50, 82, 0.7);
+    padding: 1.2rem 0 2.25rem;
+    margin-top: auto;
+  }
+
+  .row {
+    display: flex;
+    gap: 0.9rem;
+    align-items: flex-end;
+    max-width: 840px;
+    margin: 0 auto;
+  }
+
+  .grow { flex: 1; }
+
+  textarea {
+    width: 100%;
+    min-height: 64px;
+    max-height: 260px;
+    resize: none;
+    border: 1px solid rgba(53, 70, 110, 0.85);
+    border-radius: var(--border-radius);
+    background: var(--panel);
+    color: inherit;
+    padding: 1.1rem 1.25rem;
+    font-size: 1rem;
+    line-height: 1.45;
+    box-shadow: var(--shadow);
+  }
+
+  textarea:focus {
+    outline: 2px solid transparent;
+    border-color: #6d7bff;
+    box-shadow: 0 0 0 3px rgba(109, 123, 255, 0.35);
+  }
+
+  .send {
+    border: none;
+    border-radius: var(--border-radius);
+    background: linear-gradient(135deg, var(--accent2), var(--accent));
+    color: #fff;
+    padding: 0.95rem 1.4rem;
+    cursor: pointer;
+    min-width: 130px;
+    font-weight: 600;
+    box-shadow: 0 18px 38px -24px rgba(106, 118, 255, 0.85);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  .send:disabled {
+    opacity: 0.6;
+    cursor: progress;
+  }
+
+  .send:not(:disabled):hover {
+    transform: translateY(-1px);
+    box-shadow: 0 24px 42px -28px rgba(125, 136, 255, 0.95);
+  }
+
+  .btn-secondary {
+    border: 1px solid rgba(60, 78, 122, 0.8);
+    border-radius: var(--border-radius);
+    background: rgba(30, 41, 71, 0.9);
+    color: #e4e9ff;
+    padding: 0.9rem 1.2rem;
+    cursor: pointer;
+    min-width: 120px;
+    font-weight: 500;
+    box-shadow: 0 12px 24px -20px rgba(56, 70, 122, 0.85);
+  }
+
+  .btn-secondary:hover {
+    transform: translateY(-1px);
+  }
+
+  .hidden { display: none !important; }
+
+  .error {
+    color: #f97272;
+    margin: 0.55rem 0 0;
+    min-height: 1.2rem;
+  }
+
+  dialog#settingsDialog {
+    border: none;
+    border-radius: 26px;
+    background: rgba(8, 12, 24, 0.95);
+    color: inherit;
+    width: min(780px, 92vw);
+    padding: 0;
+    box-shadow: 0 40px 80px -38px rgba(4, 6, 12, 0.9);
+  }
+
+  dialog#settingsDialog::backdrop {
+    background: rgba(4, 7, 14, 0.65);
+    backdrop-filter: blur(10px);
+  }
+
+  dialog.fallback {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: none;
+  }
+
+  dialog.fallback.open { display: block; }
+
+  .settings-wrap {
+    padding: 1.5rem 1.75rem 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .settings-head {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+  }
+
+  .settings-head h2 {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 600;
+  }
+
+  .settings-head button {
+    margin-left: auto;
+    background: rgba(40, 53, 86, 0.8);
+    border: 1px solid rgba(55, 70, 110, 0.85);
+    border-radius: 12px;
+    color: #d6defd;
+    padding: 0.45rem 0.95rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+
+  .settings-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+
+  .settings-section h3 {
+    margin: 0;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #dce2ff;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .settings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.8rem 1rem;
+  }
+
+  .settings-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    font-size: 0.78rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .settings-grid input {
+    width: 100%;
+    border: 1px solid rgba(55, 72, 116, 0.9);
+    border-radius: 12px;
+    background: var(--panel);
+    color: inherit;
+    padding: 0.7rem 0.8rem;
+    font-size: 0.95rem;
+  }
+
+  .settings-grid input[type="checkbox"] {
+    width: auto;
+    transform: scale(1.1);
+  }
+
+  .settings-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+  }
+
+  .settings-actions button {
+    background: rgba(30, 42, 72, 0.85);
+    border: 1px solid rgba(54, 70, 110, 0.85);
+    border-radius: 12px;
+    padding: 0.55rem 1.1rem;
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: #e1e6ff;
+    cursor: pointer;
+  }
+
+  .settings-actions button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 16px 24px -20px rgba(66, 80, 128, 0.9);
+  }
+
+  @media (max-width: 760px) {
+    header {
+      flex-wrap: wrap;
+      gap: 0.85rem;
+      padding: 0.85rem 1rem;
+    }
+
+    .status-pill {
+      width: 100%;
+      justify-content: center;
+      margin-left: 0;
+    }
+
+    header button {
+      width: 100%;
+      justify-content: center;
+    }
+
+    .row { flex-direction: column; }
+    .send, .btn-secondary { width: 100%; }
+    .toolbar { margin-left: 0; }
+  }
 </style>
 </head>
 <body>
 <div class="app">
   <header>
-    <div class="title">AlmondAI ↔ LM Studio</div>
-    <div class="pill">
-      <span>Endpoint:</span>
-      <input id="endpoint" value="http://localhost:1234/v1/chat/completions" spellcheck="false" />
-      <button id="probe">Probe</button>
+    <div class="title">
+      <span>AlmondAI ↔ LM Studio</span>
+      <span class="subtitle">OpenAI-compatible chat bridge for local experiments</span>
     </div>
-    <div class="pill">
-      <span>Model:</span>
-      <input id="model" value="deepseek/deepseek-r1-0528-qwen3-8b" spellcheck="false" />
-      <button id="autofill">Auto-fill</button>
+    <div class="status-pill">
+      <span class="status-dot" id="statusDot" data-state="idle"></span>
+      <span id="status" class="status">Idle</span>
     </div>
-    <button id="settingsBtn" class="settings">Settings</button>
-    <span id="status" class="status"></span>
+    <button id="settingsBtn" type="button">Session Settings</button>
   </header>
 
   <main id="chat" class="chat" aria-live="polite"></main>
 
   <section class="composer">
-    <details id="settingsPanel" class="panel">
-      <summary>Session settings</summary>
-      <div class="grid">
-        <label>System prompt
-          <input id="system" value="Always answer in rhymes. Today is Thursday" />
-        </label>
-        <label>API key (optional)
-          <input id="apiKey" placeholder="sk-..." />
-        </label>
-        <label>Temperature
-          <input id="temperature" type="number" min="0" max="2" step="0.1" value="0.7" />
-        </label>
-        <label>max_tokens (-1 unlimited)
-          <input id="max_tokens" type="number" step="1" value="-1" />
-        </label>
-        <label>Stream
-          <input id="stream" type="checkbox" />
-        </label>
-        <label></label>
-      </div>
-      <div class="grid">
-        <label>
-          <button id="clear" type="button">Clear chat</button>
-        </label>
-        <label>
-          <button id="copyAll" type="button">Copy all text</button>
-        </label>
-      </div>
-    </details>
-
     <div class="row">
       <div class="grow">
         <textarea id="prompt" placeholder="Message LM Studio… (Enter to send, Shift+Enter newline)"></textarea>
         <div id="error" class="error"></div>
       </div>
       <button id="send" class="send">Send</button>
-      <button id="stop" class="send hidden" style="background:#334155">Stop</button>
-      <button id="regen" class="send hidden" style="background:#26314a">Regenerate</button>
+      <button id="stop" class="btn-secondary hidden">Stop</button>
+      <button id="regen" class="btn-secondary hidden">Regenerate</button>
     </div>
   </section>
 </div>
 
+<dialog id="settingsDialog">
+  <div class="settings-wrap">
+    <div class="settings-head">
+      <h2>Session settings</h2>
+      <button id="closeSettings" type="button">Close</button>
+    </div>
+
+    <div class="settings-section">
+      <h3>Connection</h3>
+      <div class="settings-grid">
+        <label>Endpoint
+          <input id="endpoint" value="http://127.0.0.1:1234/v1/chat/completions" spellcheck="false" />
+        </label>
+        <label>Model
+          <input id="model" value="lmstudio" spellcheck="false" />
+        </label>
+        <label>API key (optional)
+          <input id="apiKey" placeholder="sk-..." />
+        </label>
+      </div>
+      <div class="settings-actions">
+        <button id="probe" type="button">Probe server</button>
+        <button id="autofill" type="button">Use first model</button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Behaviour</h3>
+      <div class="settings-grid">
+        <label>System prompt
+          <input id="system" value="Always answer in rhymes. Today is Thursday" />
+        </label>
+        <label>Temperature
+          <input id="temperature" type="number" min="0" max="2" step="0.1" value="0.7" />
+        </label>
+        <label>Max tokens (-1 unlimited)
+          <input id="max_tokens" type="number" step="1" value="-1" />
+        </label>
+        <label style="flex-direction:row; align-items:center; gap:0.6rem; text-transform:none; letter-spacing:normal; font-size:0.9rem; color:#e1e6ff;">
+          <input id="stream" type="checkbox" /> Stream responses
+        </label>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Utilities</h3>
+      <div class="settings-actions">
+        <button id="clear" type="button">Clear chat</button>
+        <button id="copyAll" type="button">Copy all text</button>
+      </div>
+    </div>
+  </div>
+</dialog>
+
 <script>
-const $ = (id)=>document.getElementById(id);
-const chat = $('chat'), promptEl = $('prompt'), sendBtn = $('send'), stopBtn = $('stop'), regenBtn = $('regen');
-const statusEl = $('status'), errEl = $('error');
+const $ = (id) => document.getElementById(id);
+const chat = $('chat');
+const promptEl = $('prompt');
+const sendBtn = $('send');
+const stopBtn = $('stop');
+const regenBtn = $('regen');
+const statusEl = $('status');
+const statusDot = $('statusDot');
+const errEl = $('error');
+const settingsDialog = $('settingsDialog');
+
+if (settingsDialog && typeof settingsDialog.showModal !== 'function') {
+  settingsDialog.classList.add('fallback');
+}
+
+function setStatus(text, state = 'idle') {
+  statusEl.textContent = text;
+  if (statusDot) statusDot.dataset.state = state;
+}
 
 let controller = null;
-let history = []; // [{role:'user'|'assistant'|'system', content:'...'}]
+let history = [];
 let lastUser = '';
 
-/* ---------- UI helpers ---------- */
-function esc(s){ return s.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])); }
+function esc(str) {
+  return str.replace(/[&<>]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]));
+}
 
-function addMsg(role, content, ongoing=false){
+function addMsg(role, content) {
   const wrap = document.createElement('div');
   wrap.className = `msg ${role}`;
+
   const avatar = document.createElement('div');
   avatar.className = 'avatar';
   avatar.textContent = role === 'user' ? 'U' : (role === 'assistant' ? 'A' : 'S');
+
   const bubble = document.createElement('div');
   bubble.className = 'bubble';
-  const meta = document.createElement('div'); meta.className='meta';
-  meta.textContent = role.charAt(0).toUpperCase()+role.slice(1);
+
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  meta.textContent = role.charAt(0).toUpperCase() + role.slice(1);
+
   const pre = document.createElement('pre');
   pre.innerHTML = esc(content || '');
+
   const copy = document.createElement('button');
-  copy.textContent = 'Copy';
   copy.className = 'copy';
-  copy.onclick = ()=>navigator.clipboard.writeText(pre.textContent);
+  copy.textContent = 'Copy';
+  copy.type = 'button';
+  copy.addEventListener('click', () => navigator.clipboard.writeText(pre.textContent));
+
   bubble.appendChild(copy);
   bubble.appendChild(meta);
   bubble.appendChild(pre);
+
   wrap.appendChild(avatar);
   wrap.appendChild(bubble);
   chat.appendChild(wrap);
   chat.scrollTop = chat.scrollHeight;
-  return {wrap, pre};
+  return { wrap, pre };
 }
 
-function updateStreaming(preEl, chunk){
+function updateStreaming(preEl, chunk) {
   preEl.textContent += chunk;
   chat.scrollTop = chat.scrollHeight;
 }
 
-function setBusy(b){
-  sendBtn.disabled = b;
-  stopBtn.classList.toggle('hidden', !b);
-  regenBtn.classList.toggle('hidden', b || history.length===0);
+function setBusy(busy) {
+  sendBtn.disabled = busy;
+  stopBtn.classList.toggle('hidden', !busy);
+  regenBtn.classList.toggle('hidden', busy || history.length === 0);
+  if (!busy && statusDot?.dataset.state === 'busy') {
+    setStatus(history.length ? 'Ready' : 'Idle', 'idle');
+  }
 }
 
-function showError(msg){ errEl.textContent = msg || ''; }
+function showError(msg) {
+  errEl.textContent = msg || '';
+}
 
-/* ---------- Persistence ---------- */
-function loadPrefs(){
-  const get = k => localStorage.getItem(k);
-  const setIf = (id,k)=>{ const v=get(k); if(v!==null) $(id).value = v; };
-  setIf('endpoint','lm_endpoint');
-  setIf('model','lm_model');
-  setIf('system','lm_system');
-  setIf('temperature','lm_temp');
-  setIf('max_tokens','lm_maxtok');
-  $('stream').checked = (get('lm_stream')||'0') === '1';
+function normalizeEndpoint(raw) {
+  if (!raw) return '';
+  let value = raw.trim();
+  if (!/^https?:\/\//i.test(value)) {
+    value = `http://${value}`;
+  }
+  try {
+    const url = new URL(value);
+    value = url.toString();
+  } catch {}
+  value = value.replace(/\/+$/, '');
+  if (!/\/v1\/chat\/completions\b/i.test(value)) {
+    value = value
+      .replace(/\/v1\/?$/i, '')
+      .replace(/\/v1\/models.*$/i, '')
+      .replace(/\/v1\/chat\/completions.*$/i, '')
+      .replace(/\/+$/, '');
+    value = `${value}/v1/chat/completions`;
+  }
+  return value;
+}
+
+function currentEndpoint() {
+  const input = $('endpoint');
+  const normalized = normalizeEndpoint(input.value);
+  if (normalized !== input.value) input.value = normalized;
+  return normalized;
+}
+
+function loadPrefs() {
+  const get = (k) => localStorage.getItem(k);
+  const setIf = (id, k) => {
+    const v = get(k);
+    if (v !== null) $(id).value = v;
+  };
+  setIf('endpoint', 'lm_endpoint');
+  setIf('model', 'lm_model');
+  setIf('system', 'lm_system');
+  setIf('temperature', 'lm_temp');
+  setIf('max_tokens', 'lm_maxtok');
+  $('stream').checked = (get('lm_stream') || '0') === '1';
+  $('endpoint').value = normalizeEndpoint($('endpoint').value);
   const saved = get('lm_chat');
-  if (saved) { try { history = JSON.parse(saved); } catch{} }
-  if (history.length) renderHistory();
+  if (saved) {
+    try {
+      history = JSON.parse(saved);
+    } catch (err) {
+      console.warn('Unable to parse saved history', err);
+      history = [];
+    }
+  }
 }
-function savePrefs(){
-  localStorage.setItem('lm_endpoint', $('endpoint').value.trim());
+
+function savePrefs() {
+  localStorage.setItem('lm_endpoint', currentEndpoint());
   localStorage.setItem('lm_model', $('model').value.trim());
   localStorage.setItem('lm_system', $('system').value);
   localStorage.setItem('lm_temp', $('temperature').value);
   localStorage.setItem('lm_maxtok', $('max_tokens').value);
-  localStorage.setItem('lm_stream', $('stream').checked ? '1':'0');
+  localStorage.setItem('lm_stream', $('stream').checked ? '1' : '0');
   localStorage.setItem('lm_chat', JSON.stringify(history));
 }
 
-/* ---------- Probe / models (no preflight) ---------- */
-$('probe').onclick = async ()=>{
-  statusEl.textContent='Probing…';
-  const url = $('endpoint').value.trim().replace(/\/v1\/chat\/completions.*$/,'/v1/models');
-  try{
-    const r = await fetch(url, { method:'GET' }); // simple GET
+function renderHistory() {
+  chat.innerHTML = '';
+  for (const entry of history) {
+    if (entry.role === 'system') continue;
+    addMsg(entry.role, entry.content);
+  }
+  chat.scrollTop = chat.scrollHeight;
+}
+
+$('probe').onclick = async () => {
+  setStatus('Probing…', 'busy');
+  const url = currentEndpoint().replace(/\/v1\/chat\/completions.*$/, '/v1/models');
+  try {
+    const r = await fetch(url, { method: 'GET' });
     const js = await r.json();
-    statusEl.textContent = `Models: ${Array.isArray(js.data)?js.data.length:(js.models?.length||0)}`;
-  }catch(e){ statusEl.textContent='Probe failed'; }
-};
-$('autofill').onclick = async ()=>{
-  statusEl.textContent='Fetching models…';
-  const url = $('endpoint').value.trim().replace(/\/v1\/chat\/completions.*$/,'/v1/models');
-  try{
-    const r = await fetch(url, { method:'GET' });
-    const js = await r.json();
-    const id = js?.data?.[0]?.id || js?.models?.[0]?.id;
-    if (id){ $('model').value = id; statusEl.textContent = `Model: ${id}`; savePrefs(); }
-    else statusEl.textContent = 'No models returned';
-  }catch(e){ statusEl.textContent='Fetch failed'; }
+    const total = Array.isArray(js.data) ? js.data.length : (js.models?.length || 0);
+    setStatus(`Models: ${total}`, 'idle');
+  } catch (e) {
+    console.error(e);
+    setStatus('Probe failed', 'error');
+  }
 };
 
-/* ---------- Chat send ---------- */
-async function sendMessage(text, {regenerate=false}={}){
+$('autofill').onclick = async () => {
+  setStatus('Fetching models…', 'busy');
+  const url = currentEndpoint().replace(/\/v1\/chat\/completions.*$/, '/v1/models');
+  try {
+    const r = await fetch(url, { method: 'GET' });
+    const js = await r.json();
+    const id = js?.data?.[0]?.id || js?.models?.[0]?.id;
+    if (id) {
+      $('model').value = id;
+      setStatus(`Model: ${id}`, 'idle');
+      savePrefs();
+    } else {
+      setStatus('No models returned', 'error');
+    }
+  } catch (e) {
+    console.error(e);
+    setStatus('Fetch failed', 'error');
+  }
+};
+
+async function sendMessage(text, { regenerate = false } = {}) {
   showError('');
-  const endpoint = $('endpoint').value.trim();
+  const endpoint = currentEndpoint();
   const model = $('model').value.trim();
   const sys = $('system').value;
-  const temperature = parseFloat($('temperature').value)||0.7;
-  const max_tokens = parseInt($('max_tokens').value,10);
+  const temperature = parseFloat($('temperature').value) || 0.7;
+  const max_tokens = parseInt($('max_tokens').value, 10);
   const stream = $('stream').checked;
   const apiKey = $('apiKey').value.trim();
 
@@ -221,138 +721,163 @@ async function sendMessage(text, {regenerate=false}={}){
   if (!model) return showError('Model required.');
   if (!text.trim() && !regenerate) return;
 
+  setStatus(stream ? 'Streaming…' : 'Sending…', 'busy');
   setBusy(true);
-  statusEl.textContent = stream ? 'Streaming…' : 'Sending…';
 
-  // Build messages = optional system + full history + new user
   const messages = [];
-  if (sys.trim()) messages.push({ role:'system', content: sys.trim() });
+  if (sys.trim()) messages.push({ role: 'system', content: sys.trim() });
   for (const m of history) {
-    if (m.role==='system') continue; // system handled by input
-    messages.push({ role:m.role, content:m.content });
+    if (m.role === 'system') continue;
+    messages.push({ role: m.role, content: m.content });
   }
   if (!regenerate) {
-    messages.push({ role:'user', content:text.trim() });
-    history.push({ role:'user', content:text.trim() });
+    messages.push({ role: 'user', content: text.trim() });
+    history.push({ role: 'user', content: text.trim() });
     lastUser = text.trim();
   } else {
-    // regenerate last assistant reply from last user
-    // remove last assistant if present
-    for (let i = history.length-1; i>=0; --i) {
-      if (history[i].role==='assistant'){ history.splice(i,1); break; }
+    for (let i = history.length - 1; i >= 0; --i) {
+      if (history[i].role === 'assistant') { history.splice(i, 1); break; }
     }
-    messages.push({ role:'user', content:lastUser });
+    messages.push({ role: 'user', content: lastUser });
   }
 
   savePrefs();
 
-  // Render user bubble if not regenerate
   if (!regenerate) addMsg('user', text.trim());
 
-  // Render assistant placeholder
   const node = addMsg('assistant', '');
-  const headers = {'Content-Type':'application/json'};
+  const headers = { 'Content-Type': 'application/json' };
   if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
   const body = { model, temperature, max_tokens, stream, messages };
 
   controller = new AbortController();
-  const opts = { method:'POST', headers, body:JSON.stringify(body), signal: controller.signal };
+  const opts = { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal };
 
-  try{
+  try {
     const r = await fetch(endpoint, opts);
-    if (!stream){
+    if (!stream) {
       const js = await r.json();
       const content = js?.choices?.[0]?.message?.content ?? js?.output_text ?? '';
       node.pre.textContent = content;
-      history.push({ role:'assistant', content });
-      statusEl.textContent = `HTTP ${r.status}`;
+      history.push({ role: 'assistant', content });
+      setStatus(`HTTP ${r.status}`, r.ok ? 'idle' : 'error');
       if (!r.ok) showError(js?.error?.message || 'Request failed');
-    }else{
-      if (!r.body){ showError('No stream body'); statusEl.textContent=''; setBusy(false); return; }
+    } else {
+      if (!r.body) {
+        showError('No stream body');
+        setStatus('Stream unavailable', 'error');
+        setBusy(false);
+        return;
+      }
       const reader = r.body.getReader();
-      const dec = new TextDecoder();
-      let buf = '';
-      while (true){
-        const {value, done} = await reader.read();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { value, done } = await reader.read();
         if (done) break;
-        buf += dec.decode(value, {stream:true});
-        const parts = buf.split('\n\n'); buf = parts.pop();
-        for (const part of parts){
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop();
+        for (const part of parts) {
           const line = part.trim();
           if (!line.startsWith('data:')) continue;
           const payload = line.slice(5).trim();
-          if (payload === '[DONE]'){ break; }
-          try{
+          if (!payload || payload === '[DONE]') continue;
+          try {
             const js = JSON.parse(payload);
-            const delta = js?.choices?.[0]?.delta?.content ?? '';
+            const delta = js?.choices?.[0]?.delta?.content ?? js?.output_text ?? '';
             if (delta) updateStreaming(node.pre, delta);
-          }catch{}
+          } catch {}
         }
       }
-      // finalize text into history
-      history.push({ role:'assistant', content: node.pre.textContent });
-      statusEl.textContent = `HTTP ${r.status}`;
+      history.push({ role: 'assistant', content: node.pre.textContent });
+      setStatus(`HTTP ${r.status}`, r.ok ? 'idle' : 'error');
     }
-  }catch(e){
-    if (e.name === 'AbortError'){ statusEl.textContent='Stopped'; }
-    else if (String(e).includes('Failed to fetch')){
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      setStatus('Stopped', 'idle');
+    } else if (String(e).includes('Failed to fetch')) {
       showError('Fetch failed. Enable LM Studio “Allow browser requests (CORS)” and verify host/port.');
-      statusEl.textContent='';
+      setStatus('Fetch failed', 'error');
     } else {
-      showError(String(e)); statusEl.textContent='';
+      showError(String(e));
+      setStatus('Error', 'error');
     }
-  }finally{
+  } finally {
     controller = null;
     setBusy(false);
     savePrefs();
   }
 }
 
-function renderHistory(){
-  chat.innerHTML = '';
-  for (const m of history){
-    if (m.role === 'system') continue; // not shown as a bubble; set in settings
-    addMsg(m.role, m.content);
-  }
-  chat.scrollTop = chat.scrollHeight;
-}
-
-/* ---------- Controls ---------- */
-$('send').onclick = ()=>{
-  const t = promptEl.value;
+$('send').onclick = () => {
+  const text = promptEl.value;
   promptEl.value = '';
-  sendMessage(t);
+  autoresize();
+  sendMessage(text);
 };
-$('stop').onclick = ()=>{ if (controller) controller.abort(); };
-$('regen').onclick = ()=>{ if (lastUser) sendMessage('', {regenerate:true}); };
 
-$('clear').onclick = ()=>{
+$('stop').onclick = () => {
+  if (controller) controller.abort();
+};
+
+$('regen').onclick = () => {
+  if (lastUser) sendMessage('', { regenerate: true });
+};
+
+$('clear').onclick = () => {
   history = [];
   savePrefs();
   renderHistory();
+  setStatus('History cleared', 'idle');
 };
-$('copyAll').onclick = ()=>{
-  const all = history.filter(m=>m.role!=='system').map(m=>`${m.role.toUpperCase()}: ${m.content}`).join('\n\n');
+
+$('copyAll').onclick = () => {
+  const all = history.filter((m) => m.role !== 'system').map((m) => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n');
   navigator.clipboard.writeText(all || '');
 };
 
-$('settingsBtn').onclick = ()=>{ $('settingsPanel').open = !$('settingsPanel').open; };
+$('settingsBtn').onclick = () => {
+  if (typeof settingsDialog.showModal === 'function') {
+    if (!settingsDialog.open) settingsDialog.showModal();
+  } else {
+    settingsDialog.classList.toggle('open');
+  }
+};
 
-/* Keyboard: Enter send, Shift+Enter newline, Up to recall last user */
-promptEl.addEventListener('keydown', (e)=>{
-  if (e.key === 'Enter' && !e.shiftKey){
+$('closeSettings').onclick = () => {
+  if (settingsDialog.open) settingsDialog.close();
+  else settingsDialog.classList.remove('open');
+};
+
+settingsDialog?.addEventListener('click', (event) => {
+  if (event.target === settingsDialog) settingsDialog.close();
+});
+
+function autoresize() {
+  promptEl.style.height = 'auto';
+  promptEl.style.height = Math.min(promptEl.scrollHeight, 260) + 'px';
+}
+
+promptEl.addEventListener('input', autoresize);
+
+autoresize();
+
+promptEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     $('send').click();
-  } else if (e.key === 'ArrowUp' && !promptEl.value){
+  } else if (e.key === 'ArrowUp' && !promptEl.value) {
     e.preventDefault();
     promptEl.value = lastUser || '';
+    autoresize();
   }
 });
 
-/* Boot */
 loadPrefs();
 renderHistory();
 setBusy(false);
+setStatus(history.length ? 'Ready' : 'Idle', 'idle');
 </script>
 </body>
 </html>
