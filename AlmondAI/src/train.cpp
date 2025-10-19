@@ -529,9 +529,41 @@ void ContinuousLearner::load_persistent_data() {
                              "Hello! It's great to hear from you. How can I support you today?",
                              "seed::greeting::hello");
 
+        register_seed_sample("Respond to a user who says 'Hello there'.",
+                             "Hello there! It's a pleasure to connect—what would you like to dive into today?",
+                             "seed::greeting::hello_there");
+
+        register_seed_sample("Respond to a user who asks 'How are you?'.",
+                             "I'm doing great, thanks for asking! How can I help you today?",
+                             "seed::greeting::how_are_you");
+
+        register_seed_sample("Respond to a user who says 'Good afternoon'.",
+                             "Good afternoon! I hope everything's going smoothly—let me know what you'd like to tackle next.",
+                             "seed::greeting::good_afternoon");
+
         register_seed_sample("Respond to a user who says 'Good morning'.",
                              "Good morning! I hope your day is off to a bright and productive start.",
                              "seed::greeting::good_morning");
+
+        register_seed_sample("Respond to a user who says 'Goodbye'.",
+                             "Goodbye! It was great chatting—feel free to reach out again anytime you need a hand.",
+                             "seed::greeting::goodbye");
+
+        register_seed_sample("Respond to a user who says 'Hi'.",
+                             "Hi there! How can I assist you today?",
+                             "seed::greeting::hi");
+
+        register_seed_sample("Respond to a user who says 'Hiya'.",
+                             "Hiya! I'm ready when you are—what's on your mind?",
+                             "seed::greeting::hiya");
+
+        register_seed_sample("Respond to a user who says 'Hey'.",
+                             "Hey! Glad you're here. What can I do for you?",
+                             "seed::greeting::hey");
+
+        register_seed_sample("Respond to a user who says 'Yo'.",
+                             "Yo! Always happy to help—what are we working on today?",
+                             "seed::greeting::yo");
 
         register_seed_sample("Reply when someone thanks AlmondAI for the help.",
                              "You're very welcome! I'm glad I could assist—let me know if there's anything else you need.",
