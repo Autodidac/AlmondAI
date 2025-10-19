@@ -228,6 +228,26 @@ LocalGenerationOutcome generate_with_student(ContinuousLearner& learner,
                                              const GenerationContext& ctx,
                                              const DecodeSettings& settings) {
     LocalGenerationOutcome outcome;
+    for (const auto& result : ctx.retrieval) {
+        if (result.score <= 0.0) {
+            continue;
+        }
+        if (!result.document_id.empty()) {
+            if (const CuratedSample* sample = learner.recall_sample(result.document_id)) {
+                if (!sample->teacher_output.empty()) {
+                    outcome.output = sample->teacher_output;
+                    outcome.tokens_generated = static_cast<int>(learner.tokenizer().encode(sample->teacher_output).size());
+                    return outcome;
+                }
+            }
+        }
+        const std::string decoded = learner.tokenizer().decode(result.tokens);
+        if (!decoded.empty()) {
+            outcome.output = decoded;
+            outcome.tokens_generated = static_cast<int>(result.tokens.size());
+            return outcome;
+        }
+    }
     std::vector<int> tokens = learner.tokenizer().encode(ctx.augmented_prompt);
     std::vector<int> generated;
     generated.reserve(settings.max_tokens);
