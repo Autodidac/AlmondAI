@@ -71,6 +71,11 @@ If LM Studio listens on another port or you want to address a specific model
 name, pass explicit values to `chat use lmstudio <endpoint> <model>`. The local
 server does not require an API key, so the header is omitted automatically.
 
+For ad-hoc testing without the console, open `docs/lmstudio_client.html` in a
+browser. The standalone page exposes the same endpoint/model defaults and lets
+you send prompts directly to an LM Studio server using the OpenAI-compatible
+chat completions format.
+
 ## Seeding and persistence
 
 * `data/training_seed.jsonl` ships with three starter conversations. On first run the

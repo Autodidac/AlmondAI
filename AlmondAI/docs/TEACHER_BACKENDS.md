@@ -75,3 +75,7 @@ default. Launch the server inside LM Studio, then either:
 You can still override the endpoint/model manually if you host LM Studio on a
 different port or want to address a specific model ID. Supplying an API key is
 optional because the local server does not require authentication.
+
+Need a quick way to verify LM Studio is reachable? Open
+`docs/lmstudio_client.html` in a browser and issue prompts directly against the
+server using the same OpenAI-compatible payloads that AlmondAI produces.

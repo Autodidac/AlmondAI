@@ -71,6 +71,33 @@ project hosts the interactive console located at
 Launch the resulting binary from the repository root so it can access the
 `data/` directory.
 
+### Console commands
+
+Inside the runtime console you can type `help` at any time to surface the
+interactive command list. The help text mirrors the following reference:
+
+```
+help                    Show this message.
+generate <prompt>       Generate a completion and report the route/backend used.
+retrieve <query>        Search the retrieval index for relevant samples.
+train <file> [epochs=1] [batch=32]
+                        Run batched training against a JSONL file.
+hot-swap [name]         Promote adapter <name> or rollback when omitted.
+chat use <kind> [endpoint] [model] [key]
+                        Switch to an external chat backend. `lmstudio` pre-fills
+                        http://127.0.0.1:1234/v1/chat/completions and model
+                        `lmstudio`, while other kinds fall back to
+                        `ALMONDAI_*` environment variables when arguments are
+                        omitted.
+chat clear              Return to local student model responses.
+exit | quit             Quit the console.
+```
+
+`generate` echoes the route and backend used for each response, making it easy to
+confirm whether a remote teacher handled the request. When using
+`chat use lmstudio` you can omit the endpoint and model entirely to connect to
+the defaults LM Studio exposes on `127.0.0.1:1234`.
+
 ## Runtime Data & Persistence
 
 The learner keeps several artifacts in `data/`:
@@ -102,6 +129,11 @@ when issuing `chat use lmstudio` inside the console) AlmondAI defaults the
 endpoint to `http://127.0.0.1:1234/v1/chat/completions` and the model name to
 `lmstudio`, matching the OpenAI-compatible server bundled with LM Studio. Make
 sure LM Studio has its HTTP server enabled before connecting.
+
+For quick smoke tests you can also open
+[`AlmondAI/docs/lmstudio_client.html`](AlmondAI/docs/lmstudio_client.html) in a
+browser. The page provides a lightweight form that posts prompts directly to an
+LM Studio server using the same OpenAI-compatible contract AlmondAI expects.
 
 For OpenAI-compatible teachers the helper in
 [`AlmondAI/docs/GPT_SETUP.md`](AlmondAI/docs/GPT_SETUP.md) also honors:
