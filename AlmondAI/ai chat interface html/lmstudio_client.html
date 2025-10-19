@@ -436,14 +436,13 @@
   };
 
   // Image payload helpers
-  function toBase64ForLM(s) {
+  function normalizeImageUrl(s) {
     if (!s) return '';
     const v = s.trim();
-    if (v.startsWith('data:')) {
-      const i = v.indexOf(',');
-      return i >= 0 ? v.slice(i + 1) : v; // strip header → pure base64
-    }
-    return v; // already base64
+    if (/^https?:\/\//i.test(v)) return v; // already URL
+    if (v.startsWith('data:')) return v; // full data URL with mime type
+    if (/^[A-Za-z0-9+/=]+$/.test(v)) return `data:image/png;base64,${v}`; // bare base64
+    return v; // leave unknown formats untouched
   }
 
   function buildMessages(){
@@ -457,7 +456,7 @@
           role: m.role, // 'user'
           content: [
             { type: 'text', text: m.text || "What's in this image?" },
-            { type: 'image_url', image_url: { url: toBase64ForLM(m.imageData) } }
+            { type: 'image_url', image_url: { url: normalizeImageUrl(m.imageData) } }
           ]
         });
       } else {
