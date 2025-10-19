@@ -30,7 +30,8 @@ public:
     void update_statistics(const std::vector<double>& activations);
     std::vector<double> project(const std::vector<double>& activations) const;
 
-    void apply_gradient(const std::vector<double>& gradient);
+    void apply_gradient(const std::vector<double>& activations,
+                        const std::vector<double>& gradient);
 
     double norm() const;
 

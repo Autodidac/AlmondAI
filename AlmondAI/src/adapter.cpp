@@ -47,6 +47,9 @@ Adapter& Adapter::operator=(Adapter&& other) noexcept {
 }
 
 void Adapter::update_statistics(const std::vector<double>& activations) {
+    if (activations.size() != m_fisher_diagonal.size() || activations.empty()) {
+        return;
+    }
     std::scoped_lock lock(m_mutex);
     const double norm = std::inner_product(activations.begin(), activations.end(), activations.begin(), 0.0);
     const double scaled = norm / static_cast<double>(activations.size());
@@ -79,17 +82,60 @@ std::vector<double> Adapter::project(const std::vector<double>& activations) con
     return result;
 }
 
-void Adapter::apply_gradient(const std::vector<double>& gradient) {
+void Adapter::apply_gradient(const std::vector<double>& activations,
+                             const std::vector<double>& gradient) {
+    if (activations.size() != gradient.size() || activations.size() != m_fisher_diagonal.size()) {
+        return;
+    }
+
     std::scoped_lock lock(m_mutex);
-    const std::size_t hidden = gradient.size();
+    const std::size_t hidden = activations.size();
+    if (hidden == 0 || m_config.rank == 0) {
+        return;
+    }
+
+    auto& down_data = m_down.vector();
+    auto& up_data = m_up.vector();
+    const std::vector<double> up_snapshot = up_data;
+
+    std::vector<double> scaled_grad(hidden, 0.0);
     for (std::size_t h = 0; h < hidden; ++h) {
         const double fisher = m_fisher_diagonal[h];
-        const double scaled_grad = gradient[h] / (fisher + m_config.ewc_lambda);
+        scaled_grad[h] = gradient[h] / (fisher + m_config.ewc_lambda);
+    }
+
+    std::vector<double> down_projection(m_config.rank, 0.0);
+    for (std::size_t r = 0; r < m_config.rank; ++r) {
+        double sum = 0.0;
+        for (std::size_t h = 0; h < hidden; ++h) {
+            sum += down_data[h * m_config.rank + r] * activations[h];
+        }
+        down_projection[r] = sum;
+    }
+
+    std::vector<double> back_projection(m_config.rank, 0.0);
+    for (std::size_t r = 0; r < m_config.rank; ++r) {
+        double sum = 0.0;
+        for (std::size_t h = 0; h < hidden; ++h) {
+            sum += scaled_grad[h] * up_snapshot[r * hidden + h];
+        }
+        back_projection[r] = sum;
+    }
+
+    constexpr double kAdapterLearningRate = 0.01;
+    const double scale = m_config.alpha / static_cast<double>(m_config.rank);
+
+    for (std::size_t r = 0; r < m_config.rank; ++r) {
+        for (std::size_t h = 0; h < hidden; ++h) {
+            const double grad_up = scaled_grad[h] * down_projection[r] * scale;
+            up_data[r * hidden + h] -= kAdapterLearningRate * grad_up;
+        }
+    }
+
+    for (std::size_t h = 0; h < hidden; ++h) {
         for (std::size_t r = 0; r < m_config.rank; ++r) {
-            const std::size_t down_index = h * m_config.rank + r;
-            const std::size_t up_index = r * hidden + h;
-            m_down.vector()[down_index] -= 0.01 * scaled_grad;
-            m_up.vector()[up_index] -= 0.01 * scaled_grad;
+            const double grad_down = activations[h] * back_projection[r] * scale;
+            down_data[h * m_config.rank + r] -= kAdapterLearningRate * grad_down;
         }
     }
 }

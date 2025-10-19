@@ -28,6 +28,7 @@ public:
     struct ForwardResult {
         std::vector<double> logits;
         std::vector<double> hidden;
+        std::vector<double> pre_adapter_hidden;
     };
 
     ForwardResult forward(const std::vector<int>& tokens) const;
