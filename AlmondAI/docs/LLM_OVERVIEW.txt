@@ -23,8 +23,8 @@ Subsystem atlas
   `data/vocab.txt`. When the vocabulary grows it signals the student to resize
   its projection matrix.
 * **DataCurator** (`ingest.cpp` / `ingest.hpp`) filters prompts, deduplicates by
-  `prompt_hash`, records preference pairs, and enforces guard-rails before
-  training data is accepted.
+  `(prompt_hash, teacher_source, teacher_output)`, records preference pairs, and
+  enforces guard-rails before training data is accepted.
 * **RetrievalIndex** (`retrieval.cpp` / `retrieval.hpp`) stores curated samples
   for retrieval-augmented generation. Queries return scored hits and track a hit
   rate that feeds into training telemetry.

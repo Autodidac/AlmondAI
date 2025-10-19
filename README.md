@@ -87,9 +87,13 @@ previously saved weights from `data/student_weights.json`.
 
 If you omit `teacher_output` from `train.step` or `ingest.step` requests the
 runtime calls an external GPT endpoint using the credentials described in
-[`docs/GPT_SETUP.md`](docs/GPT_SETUP.md). Successful training steps append the
-curated example to `data/training_data.jsonl` and persist the updated weights so
-subsequent runs resume from the latest state.
+[`docs/GPT_SETUP.md`](docs/GPT_SETUP.md). To plug in alternative providers (for
+example OpenRouter, Hugging Face Inference, or a self-hosted Rasa instance) set
+the environment variables documented in
+[`docs/TEACHER_BACKENDS.md`](docs/TEACHER_BACKENDS.md) and, optionally, tag
+manually-supplied supervision with a `teacher_source` label. Successful training
+steps append the curated example to `data/training_data.jsonl` and persist the
+updated weights so subsequent runs resume from the latest state.
 
 ## Contributing
 

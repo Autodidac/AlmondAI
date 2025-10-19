@@ -6,6 +6,9 @@
 #include <sstream>
 #include <ctime>
 #include <mutex>
+#include <algorithm>
+#include <cctype>
+#include <functional>
 
 namespace almondai {
 
@@ -29,14 +32,14 @@ DataCurator::DataCurator() = default;
 
 DataCurator::DataCurator(DataCurator&& other) noexcept {
     std::scoped_lock lock(other.m_mutex);
-    m_seen_prompts = std::move(other.m_seen_prompts);
+    m_seen_samples = std::move(other.m_seen_samples);
     m_preferences = std::move(other.m_preferences);
 }
 
 DataCurator& DataCurator::operator=(DataCurator&& other) noexcept {
     if (this != &other) {
         std::scoped_lock lock(m_mutex, other.m_mutex);
-        m_seen_prompts = std::move(other.m_seen_prompts);
+        m_seen_samples = std::move(other.m_seen_samples);
         m_preferences = std::move(other.m_preferences);
     }
     return *this;
@@ -45,7 +48,8 @@ DataCurator& DataCurator::operator=(DataCurator&& other) noexcept {
 std::optional<CuratedSample> DataCurator::curate(const std::string& prompt,
                                                  const std::string& teacher_output,
                                                  Json constraints,
-                                                 const std::string& prompt_hash) {
+                                                 const std::string& prompt_hash,
+                                                 const std::string& teacher_source) {
     if (!within_length_band(prompt) || !within_length_band(teacher_output)) {
         return std::nullopt;
     }
@@ -54,7 +58,9 @@ std::optional<CuratedSample> DataCurator::curate(const std::string& prompt,
     }
 
     std::scoped_lock lock(m_mutex);
-    if (!m_seen_prompts.insert(prompt_hash).second) {
+    const std::string source = canonical_source(teacher_source);
+    const std::string sample_id = build_sample_id(prompt_hash, teacher_output, source);
+    if (!m_seen_samples.insert(sample_id).second) {
         return std::nullopt;
     }
 
@@ -62,9 +68,13 @@ std::optional<CuratedSample> DataCurator::curate(const std::string& prompt,
     sample.prompt = prompt;
     sample.teacher_output = teacher_output;
     sample.constraints = std::move(constraints);
-    sample.provenance = JsonObject{{"source", Json("gpt")},
-                                   {"prompt_hash", Json(prompt_hash)},
-                                   {"ts", Json(current_timestamp())}};
+    JsonObject provenance;
+    provenance["source"] = Json(source);
+    provenance["prompt_hash"] = Json(prompt_hash);
+    provenance["teacher_hash"] = Json(std::to_string(std::hash<std::string>{}(teacher_output)));
+    provenance["sample_hash"] = Json(sample_id);
+    provenance["ts"] = Json(current_timestamp());
+    sample.provenance = Json(provenance);
     return sample;
 }
 
@@ -91,9 +101,9 @@ std::vector<PreferencePair> DataCurator::preferences() const {
     return m_preferences;
 }
 
-void DataCurator::mark_seen(const std::string& prompt_hash) {
+void DataCurator::mark_seen(const std::string& sample_id) {
     std::scoped_lock lock(m_mutex);
-    m_seen_prompts.insert(prompt_hash);
+    m_seen_samples.insert(sample_id);
 }
 
 bool DataCurator::contains_secret(const std::string& text) {
@@ -119,6 +129,34 @@ bool DataCurator::passes_complexity(const std::string& text) {
         }
     }
     return sentences >= 1 && text.find(' ') != std::string::npos;
+}
+
+std::string DataCurator::canonical_source(const std::string& teacher_source) {
+    std::string trimmed = teacher_source;
+    trimmed.erase(trimmed.begin(), std::find_if(trimmed.begin(), trimmed.end(), [](unsigned char c) {
+        return !std::isspace(c);
+    }));
+    trimmed.erase(std::find_if(trimmed.rbegin(), trimmed.rend(), [](unsigned char c) {
+        return !std::isspace(c);
+    }).base(), trimmed.end());
+    if (trimmed.empty()) {
+        return "gpt";
+    }
+    std::string lower;
+    lower.reserve(trimmed.size());
+    std::transform(trimmed.begin(), trimmed.end(), std::back_inserter(lower), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return lower;
+}
+
+std::string DataCurator::build_sample_id(const std::string& prompt_hash,
+                                         const std::string& teacher_output,
+                                         const std::string& teacher_source) {
+    std::hash<std::string> hasher;
+    std::ostringstream oss;
+    oss << prompt_hash << "::" << teacher_source << "::" << hasher(teacher_output);
+    return oss.str();
 }
 
 } // namespace almondai
