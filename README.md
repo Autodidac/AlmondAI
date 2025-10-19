@@ -1,9 +1,9 @@
 # AlmondAI
 
-**AlmondAI** is a modular C++23 self-propagating creation engine engineered to
-spawn and wire up games, tools, and service bots that remain in lock-step with
-an embedded, AI-augmented co-processor. The codebase—actively migrating from
-its previous C++20 heritage toward full C++26 compliance—treats language-model
+**AlmondAI** is a self-evolving C++23 AI engine runtime engineered to spawn and
+wire up games, tools, and service bots that remain in lock-step with an
+embedded, AI-augmented co-processor. The codebase—actively migrating from its
+previous C++20 heritage toward full C++26 compliance—treats language-model
 reasoning as a first-class runtime dependency. The runtime studies its own
 sources, composes fresh injectors, and clones working subsystems into new
 targets while it siphons curated telemetry, external LLM transcripts, and
