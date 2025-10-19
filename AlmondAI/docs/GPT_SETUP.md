@@ -65,7 +65,8 @@ application:
    defaults to `lmstudio`) or run `chat use lmstudio` inside the console to apply
    the same defaults interactively.
 3. Issue `generate` commands and the runtime will route requests through LM
-   Studio.
+   Studio, automatically curating and training on each remote reply while
+   reporting the training outcome in the console.
 
 If LM Studio listens on another port or you want to address a specific model
 name, pass explicit values to `chat use lmstudio <endpoint> <model>`. The local

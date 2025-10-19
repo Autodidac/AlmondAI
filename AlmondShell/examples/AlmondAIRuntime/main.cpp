@@ -84,6 +84,7 @@ int main() {
     almondai::chat::BackendPtr chat_backend;
     std::optional<almondai::chat::Kind> chat_kind;
     std::string chat_route_label;
+    bool auto_train_remote = false;
 
     auto getenv_string = [](const char* name) -> std::string {
 #if defined(_WIN32)
@@ -231,9 +232,13 @@ int main() {
             chat_backend = almondai::chat::make_backend(parsed, env_endpoint, env_model, env_key);
             chat_kind = parsed;
             chat_route_label = route_label;
+            auto_train_remote = (lowered_kind == "lmstudio");
             service.set_chat_backend(chat_backend.get(), route_label);
             std::cout << "Connected to " << route_label
                       << " chat backend from environment configuration.\n";
+            if (auto_train_remote) {
+                std::cout << "LM Studio auto-training enabled. Remote replies will update the local student.\n";
+            }
         }
         catch (const std::exception& ex) {
             std::cout << "Failed to configure chat backend from environment: " << ex.what() << "\n";
@@ -243,7 +248,8 @@ int main() {
     std::cout << "AlmondAI interactive console\n"
         "Type 'help' to list available commands or 'exit' to quit.\n"
         "Use 'chat use' to connect to an external backend or 'chat clear' to return to local inference.\n"
-        "Use 'chat use lmstudio' to auto-connect to a local LM Studio instance.\n";
+        "Use 'chat use lmstudio' to auto-connect to a local LM Studio instance.\n"
+        "Remote LM Studio replies automatically train the student model.\n";
 
     auto trim = [](std::string& text) {
         auto not_space = [](unsigned char ch) { return !std::isspace(ch); };
@@ -537,6 +543,7 @@ int main() {
                           Switch to an external chat backend. 'lmstudio' pre-fills
                           http://127.0.0.1:1234/v1/chat/completions and model 'lmstudio'.
                           Other kinds fall back to ALMONDAI_* environment variables.
+                          With 'lmstudio' active, remote replies auto-train the student.
   chat clear              Return to local student model responses.
   exit | quit             Quit the console.
 )";
@@ -600,12 +607,16 @@ int main() {
                         chat_backend = almondai::chat::make_backend(kind, std::move(endpoint), std::move(model), std::move(api_key));
                         chat_kind = kind;
                         chat_route_label = route_label;
+                        auto_train_remote = (lowered_kind == "lmstudio");
                         service.set_chat_backend(chat_backend.get(), route_label);
                         if (allow_defaults) {
                             std::cout << "Using lmstudio (OpenAI-compatible) chat backend.\n";
                         } else {
                             std::cout << "Using " << almondai::chat::kind_to_string(kind)
                                       << " chat backend.\n";
+                        }
+                        if (auto_train_remote) {
+                            std::cout << "LM Studio auto-training enabled. Remote replies will update the local student.\n";
                         }
                     }
                     catch (const std::exception& ex) {
@@ -626,6 +637,7 @@ int main() {
                     chat_backend.reset();
                     chat_kind.reset();
                     chat_route_label.clear();
+                    auto_train_remote = false;
                     service.set_chat_backend(nullptr);
                     continue;
                 }
@@ -645,13 +657,53 @@ int main() {
                 if (!result) {
                     result = invoke_service("generate", Json(params));
                 }
+                bool remote_route_used = false;
+                std::string backend_label_for_training;
+                std::string captured_output;
+                bool have_output_text = false;
+                bool allowed_for_training = true;
+
+                auto parse_bool = [](const Json& value, bool fallback) -> bool {
+                    return std::visit([
+                                          fallback
+                                      ](const auto& raw) -> bool {
+                        using T = std::decay_t<decltype(raw)>;
+                        if constexpr (std::is_same_v<T, bool>) {
+                            return raw;
+                        }
+                        else if constexpr (std::is_same_v<T, double>) {
+                            return raw != 0.0;
+                        }
+                        else if constexpr (std::is_same_v<T, std::string>) {
+                            std::string lowered = raw;
+                            std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char ch) {
+                                return static_cast<char>(std::tolower(ch));
+                            });
+                            if (lowered == "true" || lowered == "1" || lowered == "yes") {
+                                return true;
+                            }
+                            if (lowered == "false" || lowered == "0" || lowered == "no") {
+                                return false;
+                            }
+                            return fallback;
+                        }
+                        else {
+                            return fallback;
+                        }
+                    }, value.value());
+                };
+
                 if (result && result->is_object()) {
                     const auto& obj = result->as_object();
                     if (auto it = obj.find("output"); it != obj.end() && it->second.is_string()) {
-                        std::cout << it->second.as_string() << "\n";
+                        captured_output = it->second.as_string();
+                        have_output_text = true;
+                        std::cout << captured_output << "\n";
                     }
                     else if (auto t = obj.find("text"); t != obj.end() && t->second.is_string()) {
-                        std::cout << t->second.as_string() << "\n";
+                        captured_output = t->second.as_string();
+                        have_output_text = true;
+                        std::cout << captured_output << "\n";
                     }
                     else {
                         std::cout << "No output returned.\n";
@@ -660,13 +712,20 @@ int main() {
                         const std::string route = route_it->second.as_string();
                         if (!route.empty()) {
                             std::cout << "[route: " << route;
+                            if (route == "remote") {
+                                remote_route_used = true;
+                            }
                             if (route != "local") {
                                 if (auto backend_it = obj.find("backend"); backend_it != obj.end() && backend_it->second.is_string()) {
-                                    std::cout << ", backend: " << backend_it->second.as_string();
+                                    backend_label_for_training = backend_it->second.as_string();
+                                    std::cout << ", backend: " << backend_label_for_training;
                                 }
                             }
                             std::cout << "]\n";
                         }
+                    }
+                    if (auto allowed_it = obj.find("allowed"); allowed_it != obj.end()) {
+                        allowed_for_training = parse_bool(allowed_it->second, allowed_for_training);
                     }
                     if (auto err_it = obj.find("remote_error"); err_it != obj.end() && err_it->second.is_string()) {
                         std::cout << "(remote error: " << err_it->second.as_string() << ")\n";
@@ -678,8 +737,133 @@ int main() {
                         }
                     }
                 }
+                else if (result && result->is_string()) {
+                    const std::string text = result->as_string();
+                    if (!text.empty()) {
+                        std::cout << text << "\n";
+                    }
+                    else {
+                        std::cout << "(empty response)\n";
+                    }
+                }
                 else {
                     std::cout << "(no response)\n";
+                }
+
+                if (auto_train_remote && remote_route_used && have_output_text && allowed_for_training) {
+                    JsonObject train_params;
+                    train_params["prompt"] = Json(prompt);
+                    train_params["teacher_output"] = Json(captured_output);
+                    if (!backend_label_for_training.empty()) {
+                        train_params["teacher_source"] = Json(backend_label_for_training);
+                    }
+                    else if (!chat_route_label.empty()) {
+                        train_params["teacher_source"] = Json(chat_route_label);
+                    }
+                    else {
+                        train_params["teacher_source"] = Json("lmstudio");
+                    }
+
+                    auto parse_double = [](const Json& value, double fallback) -> double {
+                        return std::visit([
+                                              fallback
+                                          ](const auto& raw) -> double {
+                            using T = std::decay_t<decltype(raw)>;
+                            if constexpr (std::is_same_v<T, double>) {
+                                return raw;
+                            }
+                            else if constexpr (std::is_same_v<T, bool>) {
+                                return raw ? 1.0 : 0.0;
+                            }
+                            else if constexpr (std::is_same_v<T, std::string>) {
+                                try {
+                                    std::size_t idx = 0;
+                                    double parsed = std::stod(raw, &idx);
+                                    if (idx == raw.size()) {
+                                        return parsed;
+                                    }
+                                }
+                                catch (...) {
+                                }
+                                return fallback;
+                            }
+                            else {
+                                return fallback;
+                            }
+                        }, value.value());
+                    };
+
+                    try {
+                        auto train_result = invoke_service("train.step", Json(train_params));
+                        if (train_result && train_result->is_object()) {
+                            const auto& train_obj = train_result->as_object();
+                            std::string status_text = "unknown";
+                            if (auto status_it = train_obj.find("status"); status_it != train_obj.end() && status_it->second.is_string()) {
+                                status_text = status_it->second.as_string();
+                            }
+                            bool have_loss_metric = false;
+                            double loss_metric = 0.0;
+                            if (auto loss_it = train_obj.find("loss"); loss_it != train_obj.end()) {
+                                loss_metric = parse_double(loss_it->second, loss_metric);
+                                have_loss_metric = true;
+                            }
+                            bool have_accuracy_metric = false;
+                            double accuracy_metric = 0.0;
+                            if (auto acc_it = train_obj.find("accuracy"); acc_it != train_obj.end()) {
+                                accuracy_metric = parse_double(acc_it->second, accuracy_metric);
+                                have_accuracy_metric = true;
+                            }
+
+                            std::ostringstream msg;
+                            msg << "[lmstudio auto-train: ";
+                            if (status_text == "trained") {
+                                msg << "updated student";
+                                std::vector<std::string> metrics;
+                                if (have_loss_metric) {
+                                    std::ostringstream metric;
+                                    metric << std::fixed << std::setprecision(4) << "loss=" << loss_metric;
+                                    metrics.push_back(metric.str());
+                                }
+                                if (have_accuracy_metric) {
+                                    std::ostringstream metric;
+                                    metric << std::fixed << std::setprecision(3) << "acc=" << accuracy_metric;
+                                    metrics.push_back(metric.str());
+                                }
+                                if (!metrics.empty()) {
+                                    msg << " (";
+                                    for (std::size_t i = 0; i < metrics.size(); ++i) {
+                                        if (i != 0) {
+                                            msg << ", ";
+                                        }
+                                        msg << metrics[i];
+                                    }
+                                    msg << ")";
+                                }
+                                msg << "]";
+                            }
+                            else if (status_text == "skipped") {
+                                msg << "sample skipped by curator]";
+                            }
+                            else {
+                                msg << status_text << "]";
+                            }
+                            std::cout << msg.str() << "\n";
+                        }
+                        else {
+                            std::cout << "[lmstudio auto-train: no response]\n";
+                        }
+                    }
+                    catch (const std::exception& ex) {
+                        std::cout << "[lmstudio auto-train failed: " << ex.what() << "]\n";
+                    }
+                }
+                else if (auto_train_remote && remote_route_used) {
+                    if (!allowed_for_training) {
+                        std::cout << "[lmstudio auto-train: skipped (output blocked by governor)]\n";
+                    }
+                    else if (!have_output_text) {
+                        std::cout << "[lmstudio auto-train: skipped (empty response)]\n";
+                    }
                 }
                 continue;
             }
