@@ -5,6 +5,8 @@
 #include <sstream>
 #include <mutex>
 #include <cwctype> // Add this at the top if not already present
+#include <array>
+#include <unordered_set>
 
 namespace almondai {
 
@@ -43,16 +45,36 @@ void WordTokenizer::set_config(TokenizerConfig config) {
 }
 
 void WordTokenizer::ensure_special_tokens() {
-    if (m_id_to_token.empty()) {
-        m_token_to_id.clear();
-        m_id_to_token.clear();
-        m_id_to_token.push_back(kSpecialPad);
-        m_id_to_token.push_back(kSpecialBos);
-        m_id_to_token.push_back(kSpecialEos);
-        m_id_to_token.push_back(kSpecialUnk);
-        for (std::size_t i = 0; i < m_id_to_token.size(); ++i) {
-            m_token_to_id[m_id_to_token[i]] = static_cast<int>(i);
+    static constexpr std::array<const char*, 4> kSpecialTokens = {
+        kSpecialPad,
+        kSpecialBos,
+        kSpecialEos,
+        kSpecialUnk,
+    };
+
+    std::vector<std::string> rebuilt;
+    rebuilt.reserve(m_id_to_token.size() + kSpecialTokens.size());
+    std::unordered_set<std::string> seen;
+    seen.reserve(m_id_to_token.size() + kSpecialTokens.size());
+
+    auto add_token = [&](const std::string& token) {
+        if (seen.insert(token).second) {
+            rebuilt.push_back(token);
         }
+    };
+
+    for (const auto* token : kSpecialTokens) {
+        add_token(token);
+    }
+
+    for (const auto& token : m_id_to_token) {
+        add_token(token);
+    }
+
+    m_id_to_token = std::move(rebuilt);
+    m_token_to_id.clear();
+    for (std::size_t i = 0; i < m_id_to_token.size(); ++i) {
+        m_token_to_id[m_id_to_token[i]] = static_cast<int>(i);
     }
 }
 
