@@ -442,15 +442,20 @@ int main() {
         if (command == "exit" || command == "quit") break;
 
         if (command == "help") {
-            std::cout <<
-                "Available commands:\n"
-                "  generate <prompt>      Generate a completion (uses chat backend if configured).\n"
-                "  retrieve <query>       Query the retrieval index.\n"
-                "  train <file> [epochs] [batch]  Run iterative training over <file>.\n"
-                "  hot-swap [name]        Promote adapter <name> or rollback if omitted.\n"
-                "  chat use <kind> <endpoint> [model] [key]  Switch to an external chat backend.\n"
-                "  chat clear             Return to local model responses.\n"
-                "  exit                   Quit the console.\n";
+            std::cout << R"(Available commands:
+  help                    Show this message.
+  generate <prompt>       Generate a completion and report the route/backend used.
+  retrieve <query>        Search the retrieval index for relevant samples.
+  train <file> [epochs=1] [batch=32]
+                          Run batched training against a JSONL file.
+  hot-swap [name]         Promote adapter <name> or rollback when omitted.
+  chat use <kind> [endpoint] [model] [key]
+                          Switch to an external chat backend. 'lmstudio' pre-fills
+                          http://127.0.0.1:1234/v1/chat/completions and model 'lmstudio'.
+                          Other kinds fall back to ALMONDAI_* environment variables.
+  chat clear              Return to local student model responses.
+  exit | quit             Quit the console.
+)";
             continue;
         }
 
