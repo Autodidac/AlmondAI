@@ -17,6 +17,28 @@ constexpr const char* kSpecialPad = "<pad>";
 constexpr const char* kSpecialBos = "<bos>";
 constexpr const char* kSpecialEos = "<eos>";
 constexpr const char* kSpecialUnk = "<unk>";
+static constexpr std::string_view kCurlyApostrophe{"\xE2\x80\x99", 3};
+static constexpr std::string_view kCurlyOpenApostrophe{"\xE2\x80\x98", 3};
+
+std::string canonicalise_apostrophes(std::string_view token) {
+    std::string result;
+    result.reserve(token.size());
+    for (std::size_t i = 0; i < token.size();) {
+        const unsigned char ch = static_cast<unsigned char>(token[i]);
+        if (ch == 0xE2 && i + 2 < token.size()) {
+            const unsigned char next1 = static_cast<unsigned char>(token[i + 1]);
+            const unsigned char next2 = static_cast<unsigned char>(token[i + 2]);
+            if (next1 == 0x80 && (next2 == 0x98 || next2 == 0x99)) {
+                result.push_back('\'');
+                i += 3;
+                continue;
+            }
+        }
+        result.push_back(static_cast<char>(ch));
+        ++i;
+    }
+    return result;
+}
 
 bool attaches_to_previous(std::string_view token) {
     static constexpr std::array<std::string_view, 11> kNoSpaceBefore = {
@@ -32,11 +54,12 @@ bool attaches_to_previous(std::string_view token) {
         "...",
         "?!",
     };
-    static constexpr std::string_view kCurlyApostrophe{"\xE2\x80\x99", 3};
     if (std::find(kNoSpaceBefore.begin(), kNoSpaceBefore.end(), token) != kNoSpaceBefore.end()) {
         return true;
     }
-    if (!token.empty() && (token.front() == '\'' || token.starts_with(kCurlyApostrophe))) {
+    if (!token.empty() && (token.front() == '\''
+                           || token.starts_with(kCurlyApostrophe)
+                           || token.starts_with(kCurlyOpenApostrophe))) {
         return true;
     }
     return false;
@@ -50,7 +73,10 @@ bool attaches_to_next(std::string_view token) {
         "\"",
         "'",
     };
-    return std::find(kNoSpaceAfter.begin(), kNoSpaceAfter.end(), token) != kNoSpaceAfter.end();
+    if (std::find(kNoSpaceAfter.begin(), kNoSpaceAfter.end(), token) != kNoSpaceAfter.end()) {
+        return true;
+    }
+    return token == kCurlyApostrophe || token == kCurlyOpenApostrophe;
 }
 
 bool is_whitespace(char32_t c) {
@@ -66,7 +92,7 @@ bool is_whitespace(char32_t c) {
 }
 
 bool is_word_character(char32_t c) {
-    if (c == U'\'' || c == U'\u2019') {
+    if (c == U'\'' || c == U'\u2019' || c == U'\u2018') {
         return false;
     }
     if (c <= 0x7F) {
@@ -182,7 +208,7 @@ std::string WordTokenizer::normalize(const std::string& token) const {
     if (token.empty()) {
         return token;
     }
-    std::string result = token;
+    std::string result = canonicalise_apostrophes(token);
     if (m_config.lowercase) {
         std::locale loc;
         for (char& c : result) {
@@ -258,7 +284,7 @@ std::vector<std::string> WordTokenizer::tokenize(const std::string& text) const 
     for (std::size_t i = 0; i < buffer.size(); ++i) {
         const char32_t code = buffer[i];
 
-        if (code == U'\'' || code == U'\u2019') {
+        if (code == U'\'' || code == U'\u2019' || code == U'\u2018') {
             const bool prev_word = (i > 0) && is_word_character(buffer[i - 1]);
             const bool next_word = (i + 1 < buffer.size()) && is_word_character(buffer[i + 1]);
             if (prev_word && next_word) {
