@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cctype>
 #include <functional>
+#include <string_view>
 
 namespace almondai {
 
@@ -44,6 +45,26 @@ std::string collapse_whitespace(const std::string& text) {
     }
     while (!result.empty() && result.back() == ' ') {
         result.pop_back();
+    }
+    return result;
+}
+
+std::string canonicalise_apostrophes(std::string_view text) {
+    std::string result;
+    result.reserve(text.size());
+    for (std::size_t i = 0; i < text.size();) {
+        const unsigned char ch = static_cast<unsigned char>(text[i]);
+        if (ch == 0xE2 && i + 2 < text.size()) {
+            const unsigned char next1 = static_cast<unsigned char>(text[i + 1]);
+            const unsigned char next2 = static_cast<unsigned char>(text[i + 2]);
+            if (next1 == 0x80 && (next2 == 0x98 || next2 == 0x99)) {
+                result.push_back('\'');
+                i += 3;
+                continue;
+            }
+        }
+        result.push_back(static_cast<char>(ch));
+        ++i;
     }
     return result;
 }
@@ -210,7 +231,7 @@ std::string DataCurator::canonical_source(const std::string& teacher_source) {
 }
 
 std::string DataCurator::normalize_for_hash(const std::string& text) {
-    return collapse_whitespace(text);
+    return canonicalise_apostrophes(collapse_whitespace(text));
 }
 
 std::string DataCurator::build_sample_id(const std::string& prompt,
