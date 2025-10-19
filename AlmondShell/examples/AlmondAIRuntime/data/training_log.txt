@@ -1,0 +1,4 @@
+AlmondAI training log
+Each entry below records a single training or evaluation step in a human-readable format.
+
+Step 1 | loss=3.891815 | accuracy=1.000000 | adapter_norm=0.645538 | retrieval_hit_rate=0.000000 | teacher_source=seed
