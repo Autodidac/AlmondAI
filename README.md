@@ -97,12 +97,23 @@ before launching the runtime:
 - `ALMONDAI_MODEL` – remote model identifier
 - `ALMONDAI_API_KEY` – credential used by the chat backend
 
+`lmstudio` is now accepted as an `ALMONDAI_CHAT_KIND` alias. When selected (or
+when issuing `chat use lmstudio` inside the console) AlmondAI defaults the
+endpoint to `http://127.0.0.1:1234/v1/chat/completions` and the model name to
+`lmstudio`, matching the OpenAI-compatible server bundled with LM Studio. Make
+sure LM Studio has its HTTP server enabled before connecting.
+
 For OpenAI-compatible teachers the helper in
 [`AlmondAI/docs/GPT_SETUP.md`](AlmondAI/docs/GPT_SETUP.md) also honors:
 
 - `ALMONDAI_GPT_API_KEY`
 - `ALMONDAI_GPT_ENDPOINT` (defaults to `https://api.openai.com/v1/chat/completions`)
 - `ALMONDAI_GPT_MODEL` (defaults to `gpt-4o-mini`)
+
+These `ALMONDAI_GPT_*` variables are also recognized as fallbacks for
+`ALMONDAI_ENDPOINT`, `ALMONDAI_MODEL`, and `ALMONDAI_API_KEY`, so exporting only
+the GPT-oriented names is enough to boot the console with an OpenAI-compatible
+backend already active.
 
 See [`AlmondAI/docs/TEACHER_BACKENDS.md`](AlmondAI/docs/TEACHER_BACKENDS.md) for
 notes on supported providers and response formats.
