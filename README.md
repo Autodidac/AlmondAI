@@ -16,7 +16,8 @@ the scaffolding each time.
   registered, promoted, or rolled back on the fly.
 - 🔁 **Continuous Learning Loop** – `almondai::ContinuousLearner` coordinates
   ingestion, retrieval, evaluation, and policy governance to keep interactive
-  services fresh while logging statistics to disk.
+  services fresh while logging statistics to disk, including auto-training on
+  high-quality remote transcripts when a teacher is trusted.
 - 📚 **Retrieval Augmentation** – `almondai::RetrievalIndex` tracks curated
   samples and exposes TF-IDF search so inference requests can consult the most
   relevant history.
@@ -98,8 +99,43 @@ exit | quit             Quit the console.
 confirm whether a remote teacher handled the request. When using
 `chat use lmstudio` you can omit the endpoint and model entirely to connect to
 the defaults LM Studio exposes on `127.0.0.1:1234`. With LM Studio active the
-console also auto-trains on each remote reply, reporting the outcome after every
-generation so you can monitor the student's progress.
+console also auto-trains on each remote reply: the runtime records whether the
+teacher route was used, checks policy constraints, trains the student when
+allowed, and surfaces loss/accuracy metrics inline so you can monitor the
+student's progress.
+
+## LM Studio Integration
+
+AlmondAI ships first-class defaults for LM Studio so you can keep experiments
+local while still exercising the continuous learner:
+
+- `chat use lmstudio` (or setting `ALMONDAI_CHAT_KIND=lmstudio`) wires the
+  OpenAI-compatible endpoint `http://127.0.0.1:1234/v1/chat/completions` and
+  default model name `lmstudio` without any extra arguments.
+- The runtime enables "remote reply" auto-training when LM Studio is the active
+  backend. Each completion is tagged with its source and streamed into the
+  learner so the student weights evolve alongside LM Studio feedback.
+- [`AlmondAI/docs/TEACHER_BACKENDS.md`](AlmondAI/docs/TEACHER_BACKENDS.md) and
+  [`AlmondAI/docs/GPT_SETUP.md`](AlmondAI/docs/GPT_SETUP.md) include quick-start
+  notes plus an HTML harness you can open in a browser to sanity-check LM Studio
+  connectivity before using the console.
+
+## Self-Learning Workflow
+
+Behind the scenes the runtime keeps a persistent loop alive so the student model
+can improve safely over time:
+
+- Every remote transcript or curated sample flows through the
+  `PolicyGovernor`, which enforces JSON-schema style constraints and blocklists
+  before anything reaches the learner.
+- Approved samples are indexed for retrieval, appended to `data/training_data.jsonl`,
+  and logged to `data/training_log.txt` alongside loss/accuracy, adapter norm,
+  and retrieval hit-rate metrics so you can audit outcomes offline.
+- Automatic training is invoked after successful LM Studio calls and also exposed
+  via the `train.step` MCP method and CLI `train` command, letting you replay
+  entire corpora or stream new observations into the same continuous learner.
+- Canary evaluations run through `evaluate_canary()` so you can spot regressions
+  before promoting adapters or exporting weights.
 
 ## Runtime Data & Persistence
 
