@@ -1108,6 +1108,7 @@ JsonObject Service::handle_request(const MCPBridge::Request& request) {
         events.reserve(std::min<std::size_t>(desired_total, std::size_t{200}));
 
         std::mt19937 rng = make_rng();
+        auto last_debug_update = std::chrono::steady_clock::now();
 
         while (processed < desired_total && loops_completed < loops) {
             if (shuffle) {
@@ -1225,6 +1226,25 @@ JsonObject Service::handle_request(const MCPBridge::Request& request) {
 
                 if (delay_ms > 0 && processed < desired_total) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+                }
+
+                auto now = std::chrono::steady_clock::now();
+                if (now - last_debug_update >= std::chrono::seconds(1)) {
+                    JsonObject debug;
+                    debug["stage"] = Json("train.self_loop");
+                    debug["processed"] = Json(static_cast<int>(std::min<std::size_t>(processed, static_cast<std::size_t>(std::numeric_limits<int>::max()))));
+                    debug["desired_total"] = Json(static_cast<int>(std::min<std::size_t>(desired_total, static_cast<std::size_t>(std::numeric_limits<int>::max()))));
+                    debug["trained"] = Json(trained);
+                    debug["skipped"] = Json(skipped);
+                    debug["teacher_unavailable"] = Json(unavailable);
+                    debug["loops_completed"] = Json(loops_completed);
+                    debug["loops_requested"] = Json(loops);
+                    if (trained > 0) {
+                        debug["average_loss"] = Json(loss_accumulator / static_cast<double>(trained));
+                        debug["average_accuracy"] = Json(accuracy_accumulator / static_cast<double>(trained));
+                    }
+                    m_bridge.call("debug.update", Json(debug));
+                    last_debug_update = now;
                 }
             }
 

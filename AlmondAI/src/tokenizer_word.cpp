@@ -1,6 +1,7 @@
 #include "../include/almondai/tokenizer_word.hpp"
 
 #include <locale>
+#include <cctype>
 #include <algorithm>
 #include <sstream>
 #include <mutex>
@@ -41,13 +42,77 @@ bool attaches_to_previous(std::string_view token) {
 }
 
 bool attaches_to_next(std::string_view token) {
-    static constexpr std::array<std::string_view, 4> kNoSpaceAfter = {
+    static constexpr std::array<std::string_view, 5> kNoSpaceAfter = {
         "(",
         "[",
         "{",
         "\"",
+        "'",
     };
     return std::find(kNoSpaceAfter.begin(), kNoSpaceAfter.end(), token) != kNoSpaceAfter.end();
+}
+
+bool is_whitespace(char32_t c) {
+    if (c <= 0x7F) {
+        switch (static_cast<char>(c)) {
+        case ' ': case '\t': case '\n': case '\r': case '\f': case '\v':
+            return true;
+        default:
+            break;
+        }
+    }
+    return ::iswspace(static_cast<wchar_t>(c)) != 0;
+}
+
+bool is_word_character(char32_t c) {
+    if (c == U'\'' || c == U'’') {
+        return false;
+    }
+    if (c <= 0x7F) {
+        return std::isalnum(static_cast<unsigned char>(c)) != 0;
+    }
+    return ::iswalnum(static_cast<wchar_t>(c)) != 0;
+}
+
+void append_utf8(char32_t code, std::string& out) {
+    if (code <= 0x7F) {
+        out.push_back(static_cast<char>(code));
+    } else if (code <= 0x7FF) {
+        out.push_back(static_cast<char>(0xC0 | ((code >> 6) & 0x1F)));
+        out.push_back(static_cast<char>(0x80 | (code & 0x3F)));
+    } else if (code <= 0xFFFF) {
+        out.push_back(static_cast<char>(0xE0 | ((code >> 12) & 0x0F)));
+        out.push_back(static_cast<char>(0x80 | ((code >> 6) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | (code & 0x3F)));
+    } else {
+        out.push_back(static_cast<char>(0xF0 | ((code >> 18) & 0x07)));
+        out.push_back(static_cast<char>(0x80 | ((code >> 12) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | ((code >> 6) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | (code & 0x3F)));
+    }
+}
+
+std::string build_punctuation_token(const std::vector<char32_t>& buffer, std::size_t& index) {
+    std::string token;
+    append_utf8(buffer[index], token);
+    const char32_t current = buffer[index];
+
+    if (current == U'.') {
+        std::size_t lookahead = index + 1;
+        while (lookahead < buffer.size() && buffer[lookahead] == U'.') {
+            append_utf8(buffer[lookahead], token);
+            ++lookahead;
+        }
+        index = lookahead - 1;
+    } else if (current == U'?' && index + 1 < buffer.size() && buffer[index + 1] == U'!') {
+        ++index;
+        append_utf8(buffer[index], token);
+    } else if (current == U'!' && index + 1 < buffer.size() && buffer[index + 1] == U'?') {
+        ++index;
+        append_utf8(buffer[index], token);
+    }
+
+    return token;
 }
 }
 
@@ -134,7 +199,7 @@ bool WordTokenizer::is_delimiter(char32_t c) {
     if (c <= 0x7F) {
         switch (static_cast<char>(c)) {
         case ' ': case '\t': case '\n': case '\r': case '\f': case '\v':
-        case '.': case ',': case ';': case ':': case '!': case '?': case '\'': case '"':
+        case '.': case ',': case ';': case ':': case '!': case '?': case '"':
         case '(': case ')': case '[': case ']': case '{': case '}': case '<': case '>':
         case '-': case '_': case '/': case '\\': case '|': case '@': case '#': case '$':
         case '%': case '^': case '&': case '*': case '+': case '=':
@@ -181,35 +246,46 @@ std::vector<std::string> WordTokenizer::tokenize(const std::string& text) const 
 
     std::vector<std::string> tokens;
     std::string current;
-    for (char32_t code : buffer) {
-        if (is_delimiter(code)) {
-            if (!current.empty()) {
-                tokens.push_back(normalize(current));
-                current.clear();
-            }
-        } else {
-            if (code <= 0x7F) {
-                current.push_back(static_cast<char>(code));
-            } else {
-                if (code <= 0x7FF) {
-                    current.push_back(static_cast<char>(0xC0 | ((code >> 6) & 0x1F)));
-                    current.push_back(static_cast<char>(0x80 | (code & 0x3F)));
-                } else if (code <= 0xFFFF) {
-                    current.push_back(static_cast<char>(0xE0 | ((code >> 12) & 0x0F)));
-                    current.push_back(static_cast<char>(0x80 | ((code >> 6) & 0x3F)));
-                    current.push_back(static_cast<char>(0x80 | (code & 0x3F)));
-                } else {
-                    current.push_back(static_cast<char>(0xF0 | ((code >> 18) & 0x07)));
-                    current.push_back(static_cast<char>(0x80 | ((code >> 12) & 0x3F)));
-                    current.push_back(static_cast<char>(0x80 | ((code >> 6) & 0x3F)));
-                    current.push_back(static_cast<char>(0x80 | (code & 0x3F)));
-                }
-            }
+
+    auto flush_current = [&]() {
+        if (!current.empty()) {
+            tokens.push_back(normalize(current));
+            current.clear();
         }
+    };
+
+    for (std::size_t i = 0; i < buffer.size(); ++i) {
+        const char32_t code = buffer[i];
+
+        if (code == U'\'' || code == U'’') {
+            const bool prev_word = (i > 0) && is_word_character(buffer[i - 1]);
+            const bool next_word = (i + 1 < buffer.size()) && is_word_character(buffer[i + 1]);
+            if (prev_word && next_word) {
+                append_utf8(code, current);
+            } else {
+                flush_current();
+                std::string punctuation;
+                append_utf8(code, punctuation);
+                tokens.push_back(punctuation);
+            }
+            continue;
+        }
+
+        if (is_delimiter(code)) {
+            flush_current();
+            if (!is_whitespace(code)) {
+                std::size_t index = i;
+                std::string punctuation = build_punctuation_token(buffer, index);
+                tokens.push_back(punctuation);
+                i = index;
+            }
+            continue;
+        }
+
+        append_utf8(code, current);
     }
-    if (!current.empty()) {
-        tokens.push_back(normalize(current));
-    }
+
+    flush_current();
     return tokens;
 }
 
