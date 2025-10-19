@@ -60,3 +60,5 @@ AlmondShell/examples/ConsoleApplication1/atlas_dump/
 
 AlmondShell/examples/ConsoleApplication1/atlases/menubuttons_0_0.ppm
 AlmondShell/examples/AlmondAIRuntime/data/student_weights.json
+
+AlmondShell/examples/AlmondAIRuntime/data/training_log.txt
