@@ -95,3 +95,6 @@ Step 9 | loss=4.727379 | accuracy=0.000000 | adapter_norm=0.646901 | retrieval_h
 Step 10 | loss=4.727386 | accuracy=0.000000 | adapter_norm=0.646948 | retrieval_hit_rate=1.000000 | teacher_source=lmstudio
 Step 11 | loss=4.727389 | accuracy=1.000000 | adapter_norm=0.647033 | retrieval_hit_rate=1.000000 | teacher_source=lmstudio
 Step 12 | loss=4.727386 | accuracy=1.000000 | adapter_norm=0.647105 | retrieval_hit_rate=1.000000 | teacher_source=lmstudio
+AlmondAI training log
+Each entry below records a single training or evaluation step in a human-readable format.
+
