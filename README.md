@@ -218,8 +218,9 @@ can improve safely over time:
 
 The learner keeps several artifacts in `data/`:
 
-- `training_seed.jsonl` – starter prompts copied into
-  `training_data.jsonl` on first run
+- `training_seed.jsonl` – starter prompts auto-generated (if missing) and
+  copied into `training_data.jsonl` on first run so the learner always has an
+  onboarding curriculum
 - `training_data.jsonl` – curated samples ingested during operation
 - `training_log.txt` – human-readable metrics per training/evaluation step
 - `student_weights.json` – serialized decoder weights
