@@ -26,6 +26,27 @@ std::string current_timestamp() {
     oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
     return oss.str();
 }
+
+std::string collapse_whitespace(const std::string& text) {
+    std::string result;
+    result.reserve(text.size());
+    bool in_space = false;
+    for (unsigned char ch : text) {
+        if (std::isspace(ch) != 0) {
+            if (!result.empty() && !in_space) {
+                result.push_back(' ');
+            }
+            in_space = true;
+        } else {
+            result.push_back(static_cast<char>(ch));
+            in_space = false;
+        }
+    }
+    while (!result.empty() && result.back() == ' ') {
+        result.pop_back();
+    }
+    return result;
+}
 }
 
 DataCurator::DataCurator() = default;
@@ -57,11 +78,13 @@ std::optional<CuratedSample> DataCurator::curate(const std::string& prompt,
         return std::nullopt;
     }
 
-    std::scoped_lock lock(m_mutex);
     const std::string source = canonical_source(teacher_source);
-    const std::string sample_id = build_sample_id(prompt_hash, teacher_output, source);
-    if (!m_seen_samples.insert(sample_id).second) {
-        return std::nullopt;
+    const std::string sample_id = build_sample_id(prompt, teacher_output, source);
+    {
+        std::scoped_lock lock(m_mutex);
+        if (!m_seen_samples.insert(sample_id).second) {
+            return std::nullopt;
+        }
     }
 
     CuratedSample sample;
@@ -99,6 +122,42 @@ void DataCurator::record_student_response(const std::string& prompt,
 std::vector<PreferencePair> DataCurator::preferences() const {
     std::scoped_lock lock(m_mutex);
     return m_preferences;
+}
+
+void DataCurator::register_curated(CuratedSample& sample) {
+    std::string source;
+    if (sample.provenance.is_object()) {
+        auto& prov = sample.provenance.as_object();
+        if (auto it = prov.find("source"); it != prov.end() && it->second.is_string()) {
+            source = it->second.as_string();
+        }
+        else if (auto it = prov.find("teacher_source"); it != prov.end() && it->second.is_string()) {
+            source = it->second.as_string();
+        }
+    }
+
+    const std::string canonical = canonical_source(source);
+    const std::string sample_id = build_sample_id(sample.prompt, sample.teacher_output, canonical);
+
+    {
+        std::scoped_lock lock(m_mutex);
+        m_seen_samples.insert(sample_id);
+    }
+
+    if (!sample.provenance.is_object()) {
+        JsonObject prov;
+        prov["source"] = Json(canonical);
+        prov["sample_hash"] = Json(sample_id);
+        sample.provenance = Json(prov);
+        return;
+    }
+
+    auto& prov = sample.provenance.as_object();
+    prov["source"] = Json(canonical);
+
+    if (auto it = prov.find("sample_hash"); it == prov.end() || !it->second.is_string() || it->second.as_string().empty()) {
+        prov["sample_hash"] = Json(sample_id);
+    }
 }
 
 void DataCurator::mark_seen(const std::string& sample_id) {
@@ -150,12 +209,17 @@ std::string DataCurator::canonical_source(const std::string& teacher_source) {
     return lower;
 }
 
-std::string DataCurator::build_sample_id(const std::string& prompt_hash,
+std::string DataCurator::normalize_for_hash(const std::string& text) {
+    return collapse_whitespace(text);
+}
+
+std::string DataCurator::build_sample_id(const std::string& prompt,
                                          const std::string& teacher_output,
                                          const std::string& teacher_source) {
     std::hash<std::string> hasher;
     std::ostringstream oss;
-    oss << prompt_hash << "::" << teacher_source << "::" << hasher(teacher_output);
+    oss << teacher_source << "::" << std::hex << hasher(normalize_for_hash(prompt))
+        << "::" << std::hex << hasher(normalize_for_hash(teacher_output));
     return oss.str();
 }
 

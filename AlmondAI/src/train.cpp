@@ -672,15 +672,14 @@ void ContinuousLearner::load_persistent_data() {
             }
 
             m_training_data.push_back(sample);
-            if (m_eval_data.size() < 16) {
-                m_eval_data.push_back(sample);
-            }
-
             CuratedSample& stored = m_training_data.back();
+            m_curator.register_curated(stored);
+            if (m_eval_data.size() < 16) {
+                m_eval_data.push_back(stored);
+            }
             const std::size_t index = m_training_data.size() - 1;
             const std::string document_id = derive_document_id(stored, index);
             if (!document_id.empty()) {
-                m_curator.mark_seen(document_id);
                 if (stored.provenance.is_object()) {
                     stored.provenance.as_object()["sample_hash"] = Json(document_id);
                 }
@@ -805,33 +804,32 @@ void ContinuousLearner::load_samples_from_file(const std::filesystem::path& path
             if (m_tokenizer.vocab().size() > before_vocab) {
                 m_student.base().resize_vocab(m_tokenizer.vocab().size());
             }
-            const std::size_t index = m_training_data.size();
-            const std::string document_id = derive_document_id(sample_value, index);
+            m_training_data.push_back(sample_value);
+            CuratedSample& stored = m_training_data.back();
+            m_curator.register_curated(stored);
+            if (m_eval_data.size() < 16) {
+                m_eval_data.push_back(stored);
+            }
+            const std::size_t index = m_training_data.size() - 1;
+            const std::string document_id = derive_document_id(stored, index);
+            std::string retrieval_text = stored.prompt;
+            if (!retrieval_text.empty() && !stored.teacher_output.empty()) {
+                retrieval_text.append("\n\n");
+            }
+            retrieval_text.append(stored.teacher_output);
             if (!document_id.empty()) {
-                m_curator.mark_seen(document_id);
-                if (sample_value.provenance.is_object()) {
-                    auto& prov = sample_value.provenance.as_object();
+                if (stored.provenance.is_object()) {
+                    auto& prov = stored.provenance.as_object();
                     if (prov.find("sample_hash") == prov.end()) {
                         prov["sample_hash"] = Json(document_id);
                     }
                 }
-            }
-            m_training_data.push_back(sample_value);
-            if (m_eval_data.size() < 16) {
-                m_eval_data.push_back(sample_value);
-            }
-            std::string retrieval_text = sample_value.prompt;
-            if (!retrieval_text.empty() && !sample_value.teacher_output.empty()) {
-                retrieval_text.append("\n\n");
-            }
-            retrieval_text.append(sample_value.teacher_output);
-            if (!document_id.empty()) {
                 m_retrieval.ingest_document(document_id, retrieval_text);
                 m_document_to_index[document_id] = index;
             } else {
                 std::hash<std::string> hasher;
                 std::ostringstream oss;
-                oss << "sample:" << index << ':' << hasher(sample_value.prompt + sample_value.teacher_output);
+                oss << "sample:" << index << ':' << hasher(stored.prompt + stored.teacher_output);
                 const std::string fallback_id = oss.str();
                 m_retrieval.ingest_document(fallback_id, retrieval_text);
                 m_document_to_index[fallback_id] = index;

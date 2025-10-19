@@ -1002,7 +1002,7 @@ JsonObject Service::handle_request(const MCPBridge::Request& request) {
         int loops = 1;
         int delay_ms = 0;
         bool shuffle = false;
-        bool force_new = true;
+        bool force_new = false;
         int limit = 0;
 
         if (auto it = params.find("loops"); it != params.end()) {
