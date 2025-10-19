@@ -1,173 +1,193 @@
-AlmondShell Completion Roadmap Prompt
-====================================
+AlmondShell Replicator Roadmap
+==============================
 
 Objective
 ---------
-Create a production-ready release of the AlmondShell runtime that can bootstrap AlmondEngine end-to-end across supported platforms while embracing the C++23 toolchain upgrade (and preparing for C++26) and coordinating with the "AI next door" companion process that will eventually co-own authoring workflows.
+Fortify AlmondShell as the deployment-grade replication engine that forges and
+injects new game and tooling instances on demand. Every build must ship with the
+hooks required for AI-authored extensions, deterministic hot-swaps, and
+self-auditing diagnostics so fresh clones remain trustworthy across platforms.
 
-Guiding Principles
-------------------
-1. Preserve the engine's static, header-first architecture.
-2. Prioritise developer ergonomics: fast iteration, self-diagnosing tooling, and rich documentation.
-3. Maintain deterministic builds with reproducible dependency management via vcpkg and CMake.
-4. Keep scripting, compiler-debug feedback, and automated tests in lock-step so the engine can participate in self-replicating source generation loops alongside the companion AI.
-
-Execution Plan
+Guiding Tenets
 --------------
-Use the following phases as a step-by-step prompt for future automation or assistant runs. Each phase is framed as a checklist that an assistant can execute sequentially.
+1. Preserve the static, header-first core but expose injector recipes that allow
+   scripted assembly of new launchers, editors, and mini-games.
+2. Optimise for repeatable replication: every feature needs telemetry, logging,
+   and rollback levers that automation can invoke without human babysitting.
+3. Keep renderer, input, and scripting backends pluggable so the runtime can
+   re-target clones for desktop, headless, or cloud streaming contexts.
+4. Treat the companion co-processor as a first-class collaborator by providing
+   event feeds and configuration surfaces it can mutate safely.
 
-Phase 1 – Repository Audit & Build Health
-----------------------------------------
-**Goal:** establish deterministic builds across platforms.
-- [ ] Clone repo, install prerequisites (CMake, Ninja/MSVC, vcpkg).
-- [ ] Configure CI-compatible build presets for Windows, Linux, macOS (`CMakePresets.json`).
-- [ ] Restore vcpkg dependencies in manifest mode and cache the install tree.
-- [ ] Build `updater` target in Debug and Release on all platforms; capture build logs.
-- [ ] Create a smoke test harness that launches the updater, exercises script reload, and swaps renderers headlessly.
+Execution Phases
+----------------
 
-Phase 2 – Core Runtime Stabilisation
-------------------------------------
-**Goal:** make the runtime resilient to reload, resize, and multi-context stress.
-- [x] Review `include/aengineconfig.hpp` flags; document supported combinations in `/AlmondShell/docs`. *(v0.58.2 adds `docs/aengineconfig_flags.md` covering supported renderer/context mixes.)*
-- [ ] Implement regression tests for each renderer backend (OpenGL, Raylib, SDL software) using headless validation scenes.
-- [x] Harden multi-context window management with assertions, telemetry counters, and leak detection hooks in `acontextmultiplexer`. *(v0.57.16 prevents the main thread from re-entering active render threads, removing a long-standing race in `ProcessAllContexts`; v0.59.0 gates the Win32-only multiplexer implementation and provides cross-platform stubs so Linux/macOS builds stop failing.)*
-- [x] Cache per-window narrow titles so SDL and Raylib initialisers can resolve their pane labels without relying on loop-local state. *(v0.59.3 persists the `narrowTitle` metadata in the multiplexer before backend initialisation, repairing the Windows build.)*
-- [x] Route both the automatic `RunEngine()` entry point and `wWinMain` through the same multi-context loop so every startup path spins up the full renderer/task orchestration stack.
-- [x] Fix Raylib resize propagation so OS-driven window changes update context dimensions and client callbacks without recursion. *(v0.59.1 coalesces Raylib resize notifications and forwards them through guarded callbacks.)*
-- [x] Restore SDL3 and Raylib docking by reattaching Win32 subclasses during backend initialisation and fix Raylib HiDPI sprite scaling so docked menus keep consistent sizing. *(v0.59.4 reapplies the docking subclass hook and normalises Raylib draw commands to render-pixel space; v0.59.5 keeps Raylib child windows and their framebuffers in lock-step during dock/undock transitions so UI scaling remains stable; v0.59.6 guards the Raylib sprite scaler so large windows stop shrinking button quads; v0.59.7 makes Raylib windowing fully HiDPI-aware by consuming framebuffer dimensions for layout and pointer scaling.)*
-- [ ] Finalise task scheduler/coroutine orchestration; stress-test script reload storms and fix deadlocks.
-- [x] Optimise hot-reload pipeline to recompile scripts incrementally with clear diagnostics (see `src/ascriptingsystem.cpp`). *(v0.58.0 introduces `ScriptLoadReport`, synchronous reload waits, and task pruning to surface failures deterministically.)*
-- [ ] Integrate automated smoke coverage for the script reload flow using the new diagnostics surface.
+Phase 1 – Genome Audit & Deterministic Bootstraps
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+**Goal:** Lock down the core artefacts that define an AlmondShell clone and make
+sure every platform reproduces them bit-for-bit.
+- [ ] Produce canonical CMake and vcpkg presets that emit identical layout and
+      version metadata for Windows, Linux, and macOS.
+- [ ] Bundle a "replicator manifest" that lists configuration flags, renderer
+      selections, and seed data required to rehydrate the default launcher.
+- [ ] Script a bootstrap verification job that compiles the engine, spins up the
+      default scene headlessly, and exports telemetry hashes for comparison.
+- [ ] Ship container images (WSL + Linux) that run the bootstrap verifier and
+      publish the resulting artefacts for downstream clones.
 
-Phase 3 – Feature Completion
-----------------------------
-**Goal:** ship feature parity with the planned AlmondEngine hand-off.
-- [ ] Ship the asset pipeline tooling for atlases, shaders, and script packaging with CLI entry points.
-- [ ] Flesh out networking: Steam backend primary, ASIO fallback with reconnect/backoff logic surfaced in telemetry.
-- [ ] Implement cross-backend input abstraction with remapping profiles and virtual device support.
-- [ ] Provide a metrics overlay (frame time, job queue depth, memory usage) toggled via scripting API.
-- [ ] Integrate save/load checkpoints into the scene framework for each bundled mini-game.
+Phase 2 – Adaptive Runtime Spine
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+**Goal:** Make hot reload, task orchestration, and cross-context rendering stable
+under mutation storms initiated by automation.
+- [ ] Instrument the task scheduler with structured events so the co-processor
+      can detect starvation, recursion, or deadlocks.
+- [ ] Harden renderer swaps by capturing frame graphs before/after an injector
+      rewires contexts and diffing the telemetry for regressions.
+- [ ] Expand the scripting pipeline with sandboxed execution and parallel
+      compile queues so batches of `.ascript.cpp` files can reload without
+      freezing the UI.
+- [ ] Export health dashboards that enumerate active contexts, window state, and
+      hot reload history for each clone.
 
-Phase 4 – Tooling & Automation
-------------------------------
-**Goal:** enable one-click workflows and CI coverage.
-- [ ] Add `scripts/` commands for build, test, package, and release flows (POSIX + PowerShell).
-- [ ] Create editor automation templates under `src/scripts/` demonstrating UI bootstrapping for future editor work.
-- [ ] Set up GitHub Actions/CI pipelines for build + test + artifact upload (matrix across supported OS/toolchains).
-- [ ] Generate API documentation from headers (Doxygen/Sphinx) and publish via GitHub Pages.
-- [ ] Implement crash reporting with symbol upload and minidump collection.
+Phase 3 – Interaction Fabric & Input Genetics
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+**Goal:** Unify input, UI, and networking layers so replicas inherit the same
+multiplayer-ready control surfaces.
+- [ ] Finalise cross-backend input abstraction with remapping profiles and
+      virtual device descriptors stored in the replicator manifest.
+- [ ] Layer gamepad, keyboard, and pointer telemetry into the retrieval store so
+      automation can observe behavioural drift between clones.
+- [ ] Deliver a metrics overlay (frame time, job queue depth, memory usage) that
+      toggles via scripting API and exposes structured logs.
+- [ ] Integrate save/load checkpoints for each bundled scenario, keeping the
+      state machine portable across injected builds.
 
-Phase 5 – Documentation & Release Readiness
--------------------------------------------
-**Goal:** prepare the release and onboarding collateral.
-- [ ] Update README with latest setup steps, feature matrix, and platform support table.
-- [ ] Write migration guide for integrators upgrading from prior snapshots.
-- [ ] Produce quickstart tutorials (text + video) using example projects.
-- [ ] Draft release notes summarising new features, known issues, and roadmap alignment.
-- [ ] Run a final release candidate dry run: build, package, sign, and verify checksums.
+Phase 4 – Automation & Release Orchestration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+**Goal:** Provide one-click pipelines that the co-processor can trigger to clone,
+verify, package, and ship AlmondShell variants.
+- [ ] Add cross-platform scripts for build, test, package, and release flows
+      (POSIX + PowerShell) that accept replicator manifest overrides.
+- [ ] Stand up CI matrices for all supported toolchains, including crash-dump
+      capture and symbol uploads for post-mortem replication.
+- [ ] Generate API reference docs from headers and host them alongside the
+      manifest catalogue.
+- [ ] Automate release candidate creation: package artefacts, sign binaries, and
+      emit checksums verified by the bootstrap job.
 
-Acceptance Criteria
--------------------
-- All build targets succeed on supported platforms with automated verification.
-- Regression test suite covers rendering, scripting, networking, and updater flows.
-- Documentation enables new contributors to build, extend, and deploy the engine within one working day.
-- Release artifacts are reproducible, signed, and accompanied by validated checksums.
+Acceptance Signals
+------------------
+- Bootstrap verifier succeeds on every supported platform with identical hashes
+  and artefact manifests.
+- Regression coverage spans rendering, scripting, input, networking, and updater
+  flows, with telemetry available for the co-processor to inspect.
+- Documentation empowers new contributors—or automated replicas—to build,
+  extend, and deploy the engine in a single working session.
 
-Next Steps Prompt
------------------
-"You are assisting with finalising the AlmondShell engine. Determine the active roadmap phase, enumerate actionable subtasks using the checklists above, execute them, and report progress with references to code changes, tests, and documentation updates."
+Next-Step Prompt
+----------------
+"You are piloting AlmondShell through Phase {N} of the replicator roadmap.
+Inspect the remaining tasks, assemble a PR-sized strike list, execute it, and
+report back with diffs, telemetry hashes, and documentation updates."
 
 
-AlmondAI Runtime Roadmap Prompt
-===============================
+AlmondAI Runtime Evolution Roadmap
+==================================
 
 Objective
 ---------
-Evolve the AlmondAI research runtime into a resilient, continuously-learning
-assistant with reliable service surfaces, reproducible training flows, and
-documented extension points while cultivating a self-updating LLM that can
-analyse entire repositories, borrow insights from external LLM outputs, and
-collaborate with the companion "AI next door" co-processor.
+Transform the AlmondAI runtime into a self-replicating, AI-injected orchestration
+hub that continuously drafts, tests, and deploys new agents, games, and tooling
+cells while remaining observable and safe to iterate on.
 
-Guiding Principles
-------------------
-1. Preserve the modular header/implementation split so downstream projects can
-   embed specific components without dragging in the full stack.
-2. Keep the live service observable: every long-running loop should expose
-   telemetry and surface persistent artefacts for inspection.
-3. Treat the Model Context Protocol bridge as the canonical API surface and keep
-   tooling scripted through it.
-4. Drive a lock-step, scriptable improvement loop that fuses console compiler
-   diagnostics, automated tests, and external transcript ingestion into
-   near-complete source replication workflows.
-
-Execution Plan
+Guiding Tenets
 --------------
-Run these phases sequentially or as targeted prompts when automating future
-assistant passes.
+1. Keep the modular header/implementation split intact but annotate each module
+   with injector metadata so replicas know how to stitch components together.
+2. Make every long-running service measurable: telemetry must reveal ingestion,
+   training, mutation, and deployment state to both humans and the co-processor.
+3. Treat the Model Context Protocol bridge as the canonical surface for
+   automation and ensure every new capability is scriptable through MCP.
+4. Close the loop between compiler diagnostics, scripted tests, and transcript
+   ingestion so the runtime can evolve itself without manual babysitting.
 
-Phase 1 – Baseline Audit & Documentation
----------------------------------------
-**Goal:** capture the current runtime shape and ensure onboarding material is
-up to date.
-- [ ] Catalogue every MCP method, its parameters, and expected responses in
-      `AlmondAI/docs`.
-- [ ] Document the persistent artefacts (training log, weights, vocab, seeds)
-      with retention and rotation guidance.
-- [ ] Add architecture diagrams or sequence charts for ingest, train, generate,
-      and evaluation flows.
-- [ ] Script a smoke test that boots the service, performs `model.generate`,
-      `ingest.step`, and `train.step`, and inspects the resulting files.
+Execution Phases
+----------------
 
-Phase 2 – Learning Loop Hardening
----------------------------------
-**Goal:** make ingestion, training, and evaluation robust under long-running
-sessions.
-- [ ] Replace the squared-error loss with cross-entropy over the sampled token
-      distribution and add unit tests for gradient application.
-- [ ] Persist retrieval index metadata to disk and reload it on startup so
-      retrieval-augmented generations remain stable across restarts.
-- [ ] Introduce adapter checkpointing (per-adapter weight snapshots) and
-      surface health metrics for each adapter.
-- [ ] Parallelise `trainer.fit` batch processing and guard against log file
-      contention.
+Phase 1 – Cartography & Observatory
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+**Goal:** Document the full runtime topology and expose enough instrumentation to
+watch a replica grow from zero to operational.
+- [ ] Catalogue every MCP method, payload, and response contract in
+      `AlmondAI/docs`, linking to the corresponding headers and source files.
+- [ ] Map persistent artefacts (weights, vocab, adapters, telemetry logs,
+      manifests) and document retention, rotation, and replication guidelines.
+- [ ] Produce sequence diagrams for ingest, train, generate, evaluate, and
+      injection flows, highlighting where the co-processor can intervene.
+- [ ] Build a smoke journey that boots the runtime, exercises `model.generate`,
+      `ingest.step`, `train.step`, and emits a replication manifest snapshot.
 
-Phase 3 – Service & Integration Enhancements
---------------------------------------------
-**Goal:** expose production-friendly controls over the inference surface.
-- [ ] Add rate limiting and per-route quotas to `Service::run`.
-- [ ] Support streaming responses for `model.generate` using incremental token
-      callbacks.
-- [ ] Expand `chat::Backend` providers with retry/backoff policies and uniform
-      tracing hooks.
-- [ ] Harden the GPT teacher bridge with configurable circuit breakers and
-      structured error payloads.
+Phase 2 – Mutation-Ready Learning Loop
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+**Goal:** Upgrade training and retrieval subsystems so they withstand continuous
+mutation and parallel replication.
+- [ ] Swap the squared-error loss for cross-entropy over sampled token
+      distributions, with unit tests covering gradient application edge cases.
+- [ ] Persist retrieval index metadata (including semantic tags) to disk and
+      reload it on startup so replicas inherit contextual memory.
+- [ ] Introduce adapter checkpointing with lineage tracking and health metrics
+      surfaced via MCP.
+- [ ] Parallelise `trainer.fit` batch work while guarding log streams against
+      contention and surfacing progress telemetry.
 
-Phase 4 – Evaluation & Tooling
--------------------------------
-**Goal:** keep the model accountable and easy to iterate on.
-- [ ] Build an evaluation harness that replays stored datasets and outputs
-      comparison reports between weight revisions.
-- [ ] Export training/evaluation metrics to a Prometheus-compatible endpoint.
-- [ ] Generate API docs from headers and publish them alongside the runtime
-      overview in `AlmondAI/docs`.
-- [ ] Create CLI utilities for seeding datasets, rotating adapters, and purging
-      artefacts.
+Phase 3 – Service Mesh & Injection Controls
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+**Goal:** Provide production-friendly controls for inference surfaces and
+outbound teacher federations.
+- [ ] Add rate limits, quotas, and tenant-aware throttles to `Service::run` and
+      expose them via MCP configuration commands.
+- [ ] Support streaming `model.generate` responses with incremental token
+      callbacks and structured stream events.
+- [ ] Expand `chat::Backend` with retry/backoff policies, uniform tracing, and
+      policy-governed failure envelopes.
+- [ ] Harden the GPT teacher bridge with circuit breakers, redaction pipelines,
+      and structured error payloads fed back into the mutation planner.
 
-Phase 5 – Release Readiness
----------------------------
-**Goal:** package the runtime for external consumers.
-- [ ] Produce container images and reproducible build instructions for Linux and
-      Windows.
-- [ ] Write a migration guide covering adapter schema changes, retrieval index
-      persistence, and MCP method additions.
-- [ ] Assemble example notebooks and scripts that exercise the MCP API and the
-      local inference path.
-- [ ] Draft release notes summarising feature parity, known gaps, and next
-      focus areas.
+Phase 4 – Evaluation Matrix & Ops Tooling
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+**Goal:** Keep replicas accountable and easy to iterate on once deployed.
+- [ ] Build an evaluation harness that replays curated datasets and compares
+      weight revisions, surfacing regressions through MCP reports.
+- [ ] Export metrics to Prometheus-compatible endpoints and bundle Grafana
+      dashboards for the default deployment.
+- [ ] Generate API documentation from headers and publish alongside the runtime
+      cartography packet.
+- [ ] Deliver CLI utilities for seeding datasets, rotating adapters, and purging
+      artefacts—each emitting replication manifest updates.
 
-Next Steps Prompt
------------------
-"You are advancing the AlmondAI runtime. Determine the active roadmap phase,
-list the outstanding checklist items, implement the next actionable subset, and
-return with diffs, test evidence, and updated documentation."
+Phase 5 – Release & Propagation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+**Goal:** Package the runtime so new replicas can be spawned automatically and
+safely across environments.
+- [ ] Produce container images and reproducible build scripts for Linux and
+      Windows, including GPU-enabled variants when available.
+- [ ] Create signed release bundles that embed replication manifests, bootstrap
+      smoke logs, and compatibility matrices.
+- [ ] Document upgrade and downgrade choreography for live replicas, including
+      rollback triggers and telemetry checks.
+- [ ] Run dry-run promotions that build, test, sign, and deploy to a staging
+      fleet managed entirely through MCP commands.
+
+Acceptance Signals
+------------------
+- Runtime telemetry exposes end-to-end health for ingestion, training, and
+  deployment pipelines.
+- Replicas inherit memory, adapters, and policies without manual file wrangling.
+- Release tooling produces reproducible artefacts accompanied by verified smoke
+  logs and manifest fingerprints.
+
+Next-Step Prompt
+----------------
+"You are guiding the AlmondAI runtime through Phase {N}. Harvest outstanding
+tasks, execute the next viable slice, and return with linked diffs, telemetry,
+replication manifests, and MCP command transcripts."
