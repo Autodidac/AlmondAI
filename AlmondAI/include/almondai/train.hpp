@@ -72,6 +72,7 @@ public:
     PolicyGovernor& governor() { return m_governor; }
 
     const CuratedSample* recall_sample(const std::string& document_id) const;
+    std::vector<std::string> prompts_for_tags(const std::vector<std::string>& required_tags) const;
     void set_load_status_callback(LoadStatusCallback callback);
 
 private:

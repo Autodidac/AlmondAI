@@ -43,6 +43,7 @@
 #include <type_traits>
 #include <variant>
 #include <vector>
+#include <unordered_set>
 
 int main() {
     using namespace almondai;
@@ -72,19 +73,40 @@ int main() {
     PolicyGovernor governor;
     governor.set_blocklist({ "forbidden", "classified" });
 
-    auto load_status_logger = [](const LoadStatus& status) {
-        std::cout << "[engine] " << status.phase;
-        if (!status.detail.empty()) {
-            std::cout << ": " << status.detail;
+    bool boot_ready = false;
+    auto load_status_logger = [&](const LoadStatus& status) {
+        if (status.phase == "ready") {
+            boot_ready = true;
+            std::cout << "\033[2J\033[H";
+            std::cout << "[engine] " << status.phase;
+            if (!status.detail.empty()) {
+                std::cout << ": " << status.detail;
+            }
+            if (status.total > 0) {
+                std::cout << " (" << status.completed << '/' << status.total << ')';
+            }
+            else if (status.completed > 0) {
+                std::cout << " (" << status.completed << ')';
+            }
+            std::cout << '\n';
+            std::cout.flush();
+            return;
         }
-        if (status.total > 0) {
-            std::cout << " (" << status.completed << '/' << status.total << ')';
+
+        if (!boot_ready) {
+            std::cout << "[engine] " << status.phase;
+            if (!status.detail.empty()) {
+                std::cout << ": " << status.detail;
+            }
+            if (status.total > 0) {
+                std::cout << " (" << status.completed << '/' << status.total << ')';
+            }
+            else if (status.completed > 0) {
+                std::cout << " (" << status.completed << ')';
+            }
+            std::cout << '\n';
+            std::cout.flush();
         }
-        else if (status.completed > 0) {
-            std::cout << " (" << status.completed << ')';
-        }
-        std::cout << '\n';
-        std::cout.flush();
     };
 
     ContinuousLearner learner(std::move(student),
@@ -968,9 +990,9 @@ int main() {
                           Run batched training against a JSONL file.
   self-learn [loops=1] [delay_ms=0] [options]
                           Loop through seed prompts, ask the teacher, and train automatically.
-                          Options: shuffle/random, ordered, force, keep/dedupe.
+                          Options: shuffle/random, ordered, force, keep/dedupe, tags=tag1,tag2.
   auto [loops=1] [delay_ms=0]
-                          Quick self-learning loop with shuffle + dedupe defaults.
+                          Quick self-learning loop with shuffle + dedupe defaults. Options: limit=N, tags=tag1,tag2.
   hot-swap [name]         Promote adapter <name> or rollback when omitted.
   chat use <kind> [endpoint] [model] [key]
                           Switch to an external chat backend. 'lmstudio' pre-fills
@@ -987,11 +1009,36 @@ int main() {
         }
 
         try {
+            auto split_tags = [&](const std::string& value) {
+                std::vector<std::string> parsed;
+                std::unordered_set<std::string> seen;
+                std::size_t start = 0;
+                while (start <= value.size()) {
+                    const std::size_t end = value.find(',', start);
+                    std::string token = end == std::string::npos
+                        ? value.substr(start)
+                        : value.substr(start, end - start);
+                    trim(token);
+                    if (!token.empty()) {
+                        std::string lowered = to_lower(token);
+                        if (seen.insert(lowered).second) {
+                            parsed.push_back(lowered);
+                        }
+                    }
+                    if (end == std::string::npos) {
+                        break;
+                    }
+                    start = end + 1;
+                }
+                return parsed;
+            };
+
             auto run_self_loop = [&](int loops,
                                      int delay_ms,
                                      bool shuffle,
                                      bool force_new,
-                                     std::optional<int> limit) {
+                                     std::optional<int> limit,
+                                     const std::vector<std::string>& tags) {
                 JsonObject params;
                 params["loops"] = Json(loops);
                 params["delay_ms"] = Json(delay_ms);
@@ -999,6 +1046,14 @@ int main() {
                 params["force_new"] = Json(force_new);
                 if (limit && *limit > 0) {
                     params["limit"] = Json(*limit);
+                }
+                if (!tags.empty()) {
+                    JsonArray tag_array;
+                    tag_array.reserve(tags.size());
+                    for (const auto& tag : tags) {
+                        tag_array.emplace_back(Json(tag));
+                    }
+                    params["tags"] = Json(tag_array);
                 }
 
                 auto response = invoke_service("train.self_loop", Json(params));
@@ -1104,6 +1159,22 @@ int main() {
                     }
                 }
 
+                if (auto tags_it = obj.find("requested_tags"); tags_it != obj.end() && tags_it->second.is_array()) {
+                    const auto& arr = tags_it->second.as_array();
+                    if (!arr.empty()) {
+                        std::cout << "Tags: ";
+                        for (std::size_t idx = 0; idx < arr.size(); ++idx) {
+                            if (idx != 0) {
+                                std::cout << ", ";
+                            }
+                            if (arr[idx].is_string()) {
+                                std::cout << arr[idx].as_string();
+                            }
+                        }
+                        std::cout << '\n';
+                    }
+                }
+
                 auto print_event_log = [&]() {
                     auto events_it = obj.find("events");
                     if (events_it == obj.end() || !events_it->second.is_array()) {
@@ -1164,6 +1235,21 @@ int main() {
                         if (!source.empty()) {
                             std::cout << " source=" << source;
                         }
+                        if (auto req_it = event.find("requested_tags"); req_it != event.end() && req_it->second.is_array()) {
+                            const auto& arr = req_it->second.as_array();
+                            if (!arr.empty()) {
+                                std::cout << " tags=[";
+                                for (std::size_t idx = 0; idx < arr.size(); ++idx) {
+                                    if (idx != 0) {
+                                        std::cout << ',';
+                                    }
+                                    if (arr[idx].is_string()) {
+                                        std::cout << arr[idx].as_string();
+                                    }
+                                }
+                                std::cout << ']';
+                            }
+                        }
                         if (loss_value) {
                             std::ostringstream metric;
                             metric << std::fixed << std::setprecision(4) << *loss_value;
@@ -1173,6 +1259,21 @@ int main() {
                             std::ostringstream metric;
                             metric << std::fixed << std::setprecision(3) << *acc_value;
                             std::cout << " acc=" << metric.str();
+                        }
+                        if (auto sem_it = event.find("semantic_tags"); sem_it != event.end() && sem_it->second.is_array()) {
+                            const auto& arr = sem_it->second.as_array();
+                            if (!arr.empty()) {
+                                std::cout << " sample_tags=[";
+                                for (std::size_t idx = 0; idx < arr.size(); ++idx) {
+                                    if (idx != 0) {
+                                        std::cout << ',';
+                                    }
+                                    if (arr[idx].is_string()) {
+                                        std::cout << arr[idx].as_string();
+                                    }
+                                }
+                                std::cout << ']';
+                            }
                         }
                         if (!snippet.empty()) {
                             std::cout << " | " << snippet;
@@ -1462,6 +1563,7 @@ int main() {
                 bool loops_set = false;
                 bool delay_set = false;
                 bool invalid = false;
+                std::vector<std::string> tags;
 
                 for (const auto& arg : args) {
                     if (!loops_set && is_integer_token(arg)) {
@@ -1506,6 +1608,13 @@ int main() {
                         continue;
                     }
 
+                    if (lowered.rfind("tags=", 0) == 0) {
+                        const std::string value = arg.substr(5);
+                        auto parsed_tags = split_tags(value);
+                        tags.insert(tags.end(), parsed_tags.begin(), parsed_tags.end());
+                        continue;
+                    }
+
                     std::cout << "Unknown option '" << arg << "'.\n";
                     invalid = true;
                     break;
@@ -1513,6 +1622,11 @@ int main() {
 
                 if (invalid) {
                     continue;
+                }
+
+                if (!tags.empty()) {
+                    std::unordered_set<std::string> dedupe(tags.begin(), tags.end());
+                    tags.assign(dedupe.begin(), dedupe.end());
                 }
 
                 if (loops <= 0) {
@@ -1524,7 +1638,7 @@ int main() {
                     continue;
                 }
 
-                run_self_loop(loops, delay_ms, true, false, limit);
+                run_self_loop(loops, delay_ms, true, false, limit, tags);
                 continue;
             }
 
@@ -1543,6 +1657,7 @@ int main() {
                 bool delay_set = false;
                 bool invalid = false;
                 std::optional<int> limit;
+                std::vector<std::string> tags;
 
                 for (const auto& arg : args) {
                     if (!loops_set && is_integer_token(arg)) {
@@ -1604,6 +1719,13 @@ int main() {
                         continue;
                     }
 
+                    if (lowered.rfind("tags=", 0) == 0) {
+                        const std::string value = arg.substr(5);
+                        auto parsed_tags = split_tags(value);
+                        tags.insert(tags.end(), parsed_tags.begin(), parsed_tags.end());
+                        continue;
+                    }
+
                     std::cout << "Unknown option '" << arg << "'.\n";
                     invalid = true;
                     break;
@@ -1611,6 +1733,11 @@ int main() {
 
                 if (invalid) {
                     continue;
+                }
+
+                if (!tags.empty()) {
+                    std::unordered_set<std::string> dedupe(tags.begin(), tags.end());
+                    tags.assign(dedupe.begin(), dedupe.end());
                 }
 
                 if (loops <= 0) {
@@ -1622,7 +1749,7 @@ int main() {
                     continue;
                 }
 
-                run_self_loop(loops, delay_ms, shuffle, force_new, limit);
+                run_self_loop(loops, delay_ms, shuffle, force_new, limit, tags);
                 continue;
             }
 

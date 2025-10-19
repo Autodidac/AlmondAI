@@ -156,6 +156,35 @@ int sample_token(const std::vector<double>& logits,
     return static_cast<int>(allowed[draw]);
 }
 
+std::vector<std::string> parse_tag_filter(const Json& value) {
+    std::unordered_set<std::string> seen;
+    std::vector<std::string> tags;
+    auto add_tag = [&](std::string raw) {
+        std::string trimmed = trim_whitespace(raw);
+        if (trimmed.empty()) {
+            return;
+        }
+        std::transform(trimmed.begin(), trimmed.end(), trimmed.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        if (seen.insert(trimmed).second) {
+            tags.push_back(trimmed);
+        }
+    };
+
+    if (value.is_string()) {
+        add_tag(value.as_string());
+    } else if (value.is_array()) {
+        for (const auto& entry : value.as_array()) {
+            if (entry.is_string()) {
+                add_tag(entry.as_string());
+            }
+        }
+    }
+
+    return tags;
+}
+
 Json ensure_constraints(const JsonObject& params) {
     auto it = params.find("constraints");
     if (it != params.end()) {
@@ -178,6 +207,14 @@ JsonArray build_retrieval_hits(const std::vector<RetrievalResult>& results) {
         JsonObject entry;
         entry["document_id"] = Json(item.document_id);
         entry["score"] = Json(item.score);
+        if (!item.tags.empty()) {
+            JsonArray tags;
+            tags.reserve(item.tags.size());
+            for (const auto& tag : item.tags) {
+                tags.emplace_back(Json(tag));
+            }
+            entry["tags"] = Json(tags);
+        }
         hits.emplace_back(Json(entry));
     }
     return hits;
@@ -202,14 +239,19 @@ std::string build_retrieval_context(const std::vector<RetrievalResult>& results,
 
 std::string summarise_hits(const JsonArray& hits);
 
-std::vector<std::string> load_self_learning_prompts() {
+std::vector<std::string> load_self_learning_prompts(const ContinuousLearner& learner,
+                                                    const std::vector<std::string>& required_tags) {
     namespace fs = std::filesystem;
+
+    std::vector<std::string> prompts = learner.prompts_for_tags(required_tags);
+    if (!prompts.empty() || !required_tags.empty()) {
+        return prompts;
+    }
 
     const fs::path training_data{"data/training_data.jsonl"};
     const fs::path seed_data{"data/training_seed.jsonl"};
 
     std::unordered_set<std::string> seen;
-    std::vector<std::string> prompts;
     prompts.reserve(64);
 
     auto add_prompt = [&](std::string prompt) {
@@ -1021,14 +1063,22 @@ JsonObject Service::handle_request(const MCPBridge::Request& request) {
             limit = parse_int(it->second, limit);
         }
 
+        std::vector<std::string> tag_filter;
+        if (auto it = params.find("tags"); it != params.end()) {
+            tag_filter = parse_tag_filter(it->second);
+        }
+
         loops = std::clamp(loops, 1, 1000);
         delay_ms = std::clamp(delay_ms, 0, 60000);
         if (limit < 0) {
             limit = 0;
         }
 
-        std::vector<std::string> prompts = load_self_learning_prompts();
+        std::vector<std::string> prompts = load_self_learning_prompts(*m_learner, tag_filter);
         if (prompts.empty()) {
+            if (!tag_filter.empty()) {
+                throw std::runtime_error("no prompts available for requested tags");
+            }
             throw std::runtime_error("no prompts available for self-learning");
         }
 
@@ -1076,6 +1126,14 @@ JsonObject Service::handle_request(const MCPBridge::Request& request) {
                 event["prompt"] = Json(prompt);
                 event["loop"] = Json(loops_completed + 1);
                 event["iteration"] = Json(static_cast<int>(processed + 1));
+                if (!tag_filter.empty()) {
+                    JsonArray requested;
+                    requested.reserve(tag_filter.size());
+                    for (const auto& tag : tag_filter) {
+                        requested.emplace_back(Json(tag));
+                    }
+                    event["requested_tags"] = Json(requested);
+                }
                 if (!teacher.route.empty()) {
                     event["teacher_route"] = Json(teacher.route);
                 }
@@ -1126,6 +1184,14 @@ JsonObject Service::handle_request(const MCPBridge::Request& request) {
                         event["status"] = Json("skipped");
                         ++skipped;
                     } else {
+                        if (!curated->semantic_tags.empty()) {
+                            JsonArray sample_tags;
+                            sample_tags.reserve(curated->semantic_tags.size());
+                            for (const auto& tag : curated->semantic_tags) {
+                                sample_tags.emplace_back(Json(tag));
+                            }
+                            event["semantic_tags"] = Json(sample_tags);
+                        }
                         TrainingStats stats = m_learner->train_step(*curated);
                         event["status"] = Json("trained");
                         event["loss"] = Json(stats.loss);
@@ -1182,6 +1248,14 @@ JsonObject Service::handle_request(const MCPBridge::Request& request) {
         if (trained > 0) {
             payload["average_loss"] = Json(loss_accumulator / static_cast<double>(trained));
             payload["average_accuracy"] = Json(accuracy_accumulator / static_cast<double>(trained));
+        }
+        if (!tag_filter.empty()) {
+            JsonArray tags_json;
+            tags_json.reserve(tag_filter.size());
+            for (const auto& tag : tag_filter) {
+                tags_json.emplace_back(Json(tag));
+            }
+            payload["requested_tags"] = Json(tags_json);
         }
         if (!events.empty()) {
             payload["events"] = Json(events);
