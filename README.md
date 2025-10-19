@@ -75,34 +75,90 @@ Launch the resulting binary from the repository root so it can access the
 ### Console commands
 
 Inside the runtime console you can type `help` at any time to surface the
-interactive command list. The help text mirrors the following reference:
+interactive command list. The commands below are available in every session,
+along with short usage notes and examples to clarify how they interact with the
+continuous learner:
 
-```
-help                    Show this message.
-generate <prompt>       Generate a completion and report the route/backend used.
-retrieve <query>        Search the retrieval index for relevant samples.
-train <file> [epochs=1] [batch=32]
-                        Run batched training against a JSONL file.
-hot-swap [name]         Promote adapter <name> or rollback when omitted.
-chat use <kind> [endpoint] [model] [key]
-                        Switch to an external chat backend. `lmstudio` pre-fills
-                        http://127.0.0.1:1234/v1/chat/completions and model
-                        `lmstudio`, while other kinds fall back to
-                        `ALMONDAI_*` environment variables when arguments are
-                        omitted.
-                        With `lmstudio` active, remote replies auto-train the student model.
-chat clear              Return to local student model responses.
-exit | quit             Quit the console.
+- **`help`** – redisplays the built-in cheat sheet. Handy when exploring the
+  console for the first time or when switching between machines.
+- **`generate <prompt>`** – produces a reply using the currently active route
+  (local student or remote teacher). The console echoes the route and backend so
+  you can confirm where the response came from. Example:
+  ```text
+  generate Summarize the last training run.
+  ```
+- **`retrieve <query>`** – inspects the retrieval index for matching samples.
+  This is useful for debugging or verifying that curated data landed in the
+  store. Example:
+  ```text
+  retrieve adversarial prompt mitigation
+  ```
+- **`train <file> [epochs=1] [batch=32]`** – performs supervised updates on a
+  JSONL dataset. The runtime reports per-epoch metrics to the console and
+  appends them to `data/training_log.txt`. Example:
+  ```text
+  train data/tutorial.jsonl 3 16
+  ```
+- **`hot-swap [name]`** – promotes a named adapter into the student model
+  without restarting the process. If a `name` is supplied the learner loads and
+  activates that adapter; if it is omitted the command rolls back to the default
+  adapter stack. This is an easy way to A/B test new weights in a live service:
+  ```text
+  hot-swap nightly_adapter
+  hot-swap                # roll back to the previously active adapter
+  ```
+- **`chat use <kind> [endpoint] [model] [key]`** – switches the teacher backend
+  while the console is running. The `lmstudio` kind auto-fills
+  `http://127.0.0.1:1234/v1/chat/completions` and `lmstudio` for the endpoint
+  and model. Other kinds (for example `openrouter`, `togetherai`, or
+  `openai`) fall back to the `ALMONDAI_*` environment variables when arguments
+  are omitted. When LM Studio is active, remote responses are automatically fed
+  back into the student for continual learning.
+- **`chat clear`** – returns to the local student model without tearing down the
+  console.
+- **`exit` / `quit`** – cleanly stops the runtime.
+
+`generate`, `train`, and `hot-swap` all stream progress messages as they run so
+you can watch the learner state evolve. After each remote response routed
+through `chat use`, the runtime records whether the teacher was involved,
+validates it against the `PolicyGovernor`, and, when allowed, trains the student
+on the new transcript while reporting loss/accuracy inline.
+
+### Connecting an external LLM
+
+You can connect a teacher model either by exporting environment variables before
+launch or by issuing `chat use` commands once the console is open.
+
+**Environment variables (recommended for automation)**
+
+```bash
+export ALMONDAI_CHAT_KIND=openai
+export ALMONDAI_ENDPOINT=https://api.openai.com/v1/chat/completions
+export ALMONDAI_MODEL=gpt-4o-mini
+export ALMONDAI_API_KEY=sk-...
+./build/AlmondShell/examples/AlmondAIRuntime/AlmondAIRuntime
 ```
 
-`generate` echoes the route and backend used for each response, making it easy to
-confirm whether a remote teacher handled the request. When using
-`chat use lmstudio` you can omit the endpoint and model entirely to connect to
-the defaults LM Studio exposes on `127.0.0.1:1234`. With LM Studio active the
-console also auto-trains on each remote reply: the runtime records whether the
-teacher route was used, checks policy constraints, trains the student when
-allowed, and surfaces loss/accuracy metrics inline so you can monitor the
-student's progress.
+The runtime will boot with the OpenAI-compatible backend already active and
+announce that `gpt-4o-mini` is being used. The same variables work with other
+providers—set `ALMONDAI_CHAT_KIND=openrouter`, `togetherai`, `deepinfra`, or any
+other supported provider and adjust the endpoint/model as needed. The
+`ALMONDAI_GPT_*` variables remain supported as fallbacks for OpenAI-compatible
+deployments.
+
+**Interactive switching (handy during experiments)**
+
+```text
+chat use lmstudio
+generate Draft a customer welcome email.
+chat clear
+generate What adapters are currently loaded?
+```
+
+The first command hot-swaps the teacher route to LM Studio using the default
+loopback server settings, the `generate` calls confirm where responses come
+from, and `chat clear` returns to the local student without restarting the
+process.
 
 ## LM Studio Integration
 
