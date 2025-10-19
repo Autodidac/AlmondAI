@@ -73,9 +73,8 @@ std::string ensure_seed_text() {
 
     if (need_default) {
         std::ofstream out(kSeedTextPath, std::ios::trunc);
-        out << "AlmondAI is a modular research assistant engineered to blend local learning, retrieval augmented generation, and safety controls in a compact runtime. "
-               "It keeps a vocabulary, curated examples, and adapters that can be hot-swapped without downtime. "
-               "Respond with a concise, friendly description of AlmondAI's purpose and subsystems.";
+        out << "AlmondAI is a self-evolving C++23 AI engine runtime that learns from its own source code, compiler feedback, and user interaction. "
+               "It integrates AI directly into the software loop, enabling self-analysis, self-rebuilds, and continuous evolution across its modules.";
     }
 
     std::ifstream in(kSeedTextPath);
@@ -107,8 +106,8 @@ void ensure_seed_samples() {
     const std::string seed_text = ensure_seed_text();
     const std::string introduction = seed_text.empty()
         ? std::string{
-              "AlmondAI is a modular research assistant that pairs retrieval augmented generation with on-device learning. "
-              "It maintains adapters, curated examples, and a tokenizer so it can resume improving after restarts."}
+              "AlmondAI is a self-evolving C++23 AI engine runtime that learns from its own source code, compiler feedback, and user interaction. "
+              "It integrates AI directly into the software loop, enabling self-analysis, self-rebuilds, and continuous evolution across its modules."}
         : seed_text;
 
     std::ofstream out(kSeedDataPath, std::ios::trunc);
