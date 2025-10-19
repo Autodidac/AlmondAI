@@ -7,6 +7,7 @@
 #include <cwctype> // Add this at the top if not already present
 #include <array>
 #include <unordered_set>
+#include <string_view>
 
 namespace almondai {
 
@@ -15,6 +16,39 @@ constexpr const char* kSpecialPad = "<pad>";
 constexpr const char* kSpecialBos = "<bos>";
 constexpr const char* kSpecialEos = "<eos>";
 constexpr const char* kSpecialUnk = "<unk>";
+
+bool attaches_to_previous(std::string_view token) {
+    static constexpr std::array<std::string_view, 11> kNoSpaceBefore = {
+        ".",
+        ",",
+        "!",
+        "?",
+        ";",
+        ":",
+        ")",
+        "]",
+        "}",
+        "...",
+        "?!",
+    };
+    if (std::find(kNoSpaceBefore.begin(), kNoSpaceBefore.end(), token) != kNoSpaceBefore.end()) {
+        return true;
+    }
+    if (!token.empty() && (token.front() == '\'' || token.starts_with("’"))) {
+        return true;
+    }
+    return false;
+}
+
+bool attaches_to_next(std::string_view token) {
+    static constexpr std::array<std::string_view, 4> kNoSpaceAfter = {
+        "(",
+        "[",
+        "{",
+        "\"",
+    };
+    return std::find(kNoSpaceAfter.begin(), kNoSpaceAfter.end(), token) != kNoSpaceAfter.end();
+}
 }
 
 WordTokenizer::WordTokenizer() {
@@ -221,6 +255,7 @@ std::vector<int> WordTokenizer::encode(const std::string& text) const {
 std::string WordTokenizer::decode(const std::vector<int>& tokens) const {
     std::ostringstream oss;
     bool first = true;
+    bool suppress_space = false;
     for (int token : tokens) {
         if (token < 0 || static_cast<std::size_t>(token) >= m_id_to_token.size()) {
             continue;
@@ -229,11 +264,13 @@ std::string WordTokenizer::decode(const std::vector<int>& tokens) const {
         if (word == kSpecialBos || word == kSpecialEos || word == kSpecialPad) {
             continue;
         }
-        if (!first) {
+        const bool attach_prev = attaches_to_previous(word);
+        if (!first && !suppress_space && !attach_prev) {
             oss << ' ';
         }
         first = false;
         oss << word;
+        suppress_space = attaches_to_next(word);
     }
     return oss.str();
 }
