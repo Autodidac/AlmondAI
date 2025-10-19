@@ -312,7 +312,8 @@ Kind parse_kind(const std::string& name) {
     if (lowered == "botpress") return Kind::Botpress;
     if (lowered == "deeppavlov" || lowered == "deep_pavlov") return Kind::DeepPavlov;
     if (lowered == "h2o" || lowered == "h2ogpt") return Kind::H2O;
-    if (lowered == "openai" || lowered == "librechat" || lowered == "openai_compat") return Kind::OpenAICompat;
+    if (lowered == "openai" || lowered == "librechat" || lowered == "openai_compat" || lowered == "lmstudio")
+        return Kind::OpenAICompat;
     if (lowered == "huggingface" || lowered == "hf") return Kind::HuggingFace;
     if (lowered == "openrouter") return Kind::OpenRouter;
     if (lowered == "together" || lowered == "togetherai") return Kind::TogetherAI;

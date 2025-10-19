@@ -14,6 +14,12 @@ Set these before launching `almondai_app`:
 | `ALMONDAI_GPT_ENDPOINT` | Optional override for the chat completions endpoint. Defaults to `https://api.openai.com/v1/chat/completions`. | `export ALMONDAI_GPT_ENDPOINT="https://api.openai.com/v1/chat/completions"` |
 | `ALMONDAI_GPT_MODEL` | Optional model name sent to the API. Defaults to `gpt-4o-mini`. | `export ALMONDAI_GPT_MODEL="gpt-4o-mini"` |
 
+The runtime treats `ALMONDAI_GPT_ENDPOINT`, `ALMONDAI_GPT_MODEL`, and
+`ALMONDAI_GPT_API_KEY` as fallbacks for `ALMONDAI_ENDPOINT`,
+`ALMONDAI_MODEL`, and `ALMONDAI_API_KEY`. You can export only the GPT-specific
+variables and the console will still come up with the OpenAI-compatible backend
+enabled.
+
 If the key is missing the runtime falls back to a placeholder teacher response and
 continues to accept manually provided `teacher_output` values. When supplying
 answers from other LLMs you can add a `teacher_source` string to the
@@ -47,6 +53,23 @@ Responses are expected to follow the OpenAI Chat Completions or Responses schema
 The bridge extracts the first message content (`choices[0].message.content`) or, if
 provided, the aggregated `output_text`. Custom providers should mimic one of these
 shapes.
+
+## Using LM Studio
+
+LM Studio bundles an OpenAI-compatible HTTP server. After enabling it inside the
+application:
+
+1. Start the server for the model you want to supervise with.
+2. Either export `ALMONDAI_CHAT_KIND=lmstudio` before launching AlmondAI (the
+   endpoint defaults to `http://127.0.0.1:1234/v1/chat/completions` and the model
+   defaults to `lmstudio`) or run `chat use lmstudio` inside the console to apply
+   the same defaults interactively.
+3. Issue `generate` commands and the runtime will route requests through LM
+   Studio.
+
+If LM Studio listens on another port or you want to address a specific model
+name, pass explicit values to `chat use lmstudio <endpoint> <model>`. The local
+server does not require an API key, so the header is omitted automatically.
 
 ## Seeding and persistence
 

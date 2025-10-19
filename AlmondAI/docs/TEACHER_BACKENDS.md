@@ -13,7 +13,7 @@ console harness under `AlmondShell/examples/AlmondAIRuntime`):
 
 | Variable | Purpose |
 | --- | --- |
-| `ALMONDAI_CHAT_KIND` | Backend identifier. Supported values: `openai`, `openrouter`, `huggingface`, `togetherai`, `deepinfra`, `h2o`, `rasa`, `botpress`, `deeppavlov`. |
+| `ALMONDAI_CHAT_KIND` | Backend identifier. Supported values: `openai`, `openrouter`, `huggingface`, `togetherai`, `deepinfra`, `h2o`, `rasa`, `botpress`, `deeppavlov`, `lmstudio`. |
 | `ALMONDAI_ENDPOINT` | HTTPS endpoint for the chosen provider. |
 | `ALMONDAI_MODEL` | Model identifier requested from the provider (where applicable). |
 | `ALMONDAI_API_KEY` | Bearer token or API key required by the provider (if needed). |
@@ -60,3 +60,18 @@ context.
 
 Combine this information with the per-backend environment variables above to
 experiment with ensembles or fallback hierarchies tailored to your deployment.
+
+## LM Studio quick start
+
+LM Studio exposes an OpenAI-compatible server on `http://127.0.0.1:1234` by
+default. Launch the server inside LM Studio, then either:
+
+- export `ALMONDAI_CHAT_KIND=lmstudio` (the endpoint defaults to
+  `http://127.0.0.1:1234/v1/chat/completions` and the model defaults to
+  `lmstudio`), or
+- run `chat use lmstudio` from the AlmondAI console to apply the same defaults
+  interactively.
+
+You can still override the endpoint/model manually if you host LM Studio on a
+different port or want to address a specific model ID. Supplying an API key is
+optional because the local server does not require authentication.

@@ -82,6 +82,7 @@ int main() {
 
     almondai::chat::BackendPtr chat_backend;
     std::optional<almondai::chat::Kind> chat_kind;
+    std::string chat_route_label;
 
     auto getenv_string = [](const char* name) -> std::string {
 #if defined(_WIN32)
@@ -99,17 +100,55 @@ int main() {
 #endif
         };
 
-    const std::string env_kind = getenv_string("ALMONDAI_CHAT_KIND");
+    auto to_lower = [](std::string value) {
+        std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        return value;
+    };
+
+    std::string env_kind = getenv_string("ALMONDAI_CHAT_KIND");
+    std::string env_endpoint = getenv_string("ALMONDAI_ENDPOINT");
+    std::string env_model = getenv_string("ALMONDAI_MODEL");
+    std::string env_key = getenv_string("ALMONDAI_API_KEY");
+
+    const std::string gpt_endpoint = getenv_string("ALMONDAI_GPT_ENDPOINT");
+    const std::string gpt_model = getenv_string("ALMONDAI_GPT_MODEL");
+    const std::string gpt_key = getenv_string("ALMONDAI_GPT_API_KEY");
+
+    if (env_kind.empty() && (!gpt_endpoint.empty() || !gpt_model.empty() || !gpt_key.empty())) {
+        env_kind = "openai";
+        if (env_endpoint.empty()) {
+            env_endpoint = gpt_endpoint.empty() ? "https://api.openai.com/v1/chat/completions" : gpt_endpoint;
+        }
+        if (env_model.empty()) {
+            env_model = gpt_model.empty() ? "gpt-4o-mini" : gpt_model;
+        }
+        if (env_key.empty()) {
+            env_key = gpt_key;
+        }
+    }
+
     if (!env_kind.empty()) {
-        const std::string env_endpoint = getenv_string("ALMONDAI_ENDPOINT");
-        const std::string env_model = getenv_string("ALMONDAI_MODEL");
-        const std::string env_key = getenv_string("ALMONDAI_API_KEY");
+        const std::string lowered_kind = to_lower(env_kind);
+        if (lowered_kind == "lmstudio") {
+            if (env_endpoint.empty()) {
+                env_endpoint = "http://127.0.0.1:1234/v1/chat/completions";
+            }
+            if (env_model.empty()) {
+                env_model = "lmstudio";
+            }
+        }
         try {
             almondai::chat::Kind parsed = almondai::chat::parse_kind(env_kind);
+            const std::string route_label = lowered_kind == "lmstudio"
+                ? std::string{"lmstudio"}
+                : almondai::chat::kind_to_string(parsed);
             chat_backend = almondai::chat::make_backend(parsed, env_endpoint, env_model, env_key);
             chat_kind = parsed;
-            service.set_chat_backend(chat_backend.get(), almondai::chat::kind_to_string(parsed));
-            std::cout << "Connected to " << almondai::chat::kind_to_string(parsed)
+            chat_route_label = route_label;
+            service.set_chat_backend(chat_backend.get(), route_label);
+            std::cout << "Connected to " << route_label
                       << " chat backend from environment configuration.\n";
         }
         catch (const std::exception& ex) {
@@ -119,7 +158,8 @@ int main() {
 
     std::cout << "AlmondAI interactive console\n"
         "Type 'help' to list available commands or 'exit' to quit.\n"
-        "Use 'chat use' to connect to an external backend or 'chat clear' to return to local inference.\n";
+        "Use 'chat use' to connect to an external backend or 'chat clear' to return to local inference.\n"
+        "Use 'chat use lmstudio' to auto-connect to a local LM Studio instance.\n";
 
     auto trim = [](std::string& text) {
         auto not_space = [](unsigned char ch) { return !std::isspace(ch); };
@@ -424,20 +464,57 @@ int main() {
                     while (iss >> token) {
                         args.push_back(token);
                     }
-                    if (args.size() < 2) {
+                    if (args.empty()) {
                         std::cout << "Usage: chat use <kind> <endpoint> [model] [key]\n";
                         continue;
                     }
+                    std::string lowered_kind = to_lower(args[0]);
+                    const bool allow_defaults = lowered_kind == "lmstudio";
+
+                    std::string endpoint = args.size() >= 2 ? args[1] : std::string();
+                    std::string model = args.size() >= 3 ? args[2] : std::string();
+                    std::string api_key = args.size() >= 4 ? args[3] : std::string();
+
+                    if (endpoint.empty()) {
+                        if (allow_defaults) {
+                            endpoint = "http://127.0.0.1:1234/v1/chat/completions";
+                        } else {
+                            std::cout << "Endpoint required for chat backend.\n";
+                            continue;
+                        }
+                    }
+
+                    if (model.empty()) {
+                        if (allow_defaults) {
+                            model = "lmstudio";
+                        } else {
+                            model = getenv_string("ALMONDAI_MODEL");
+                            if (model.empty()) {
+                                std::cout << "Model required for chat backend.\n";
+                                continue;
+                            }
+                        }
+                    }
+
+                    if (api_key.empty()) {
+                        api_key = getenv_string("ALMONDAI_API_KEY");
+                    }
+
                     try {
                         almondai::chat::Kind kind = almondai::chat::parse_kind(args[0]);
-                        std::string a = args[1];
-                        std::string b = args.size() >= 3 ? args[2] : std::string();
-                        std::string c = args.size() >= 4 ? args[3] : std::string();
-                        chat_backend = almondai::chat::make_backend(kind, std::move(a), std::move(b), std::move(c));
+                        const std::string route_label = allow_defaults
+                            ? std::string{"lmstudio"}
+                            : almondai::chat::kind_to_string(kind);
+                        chat_backend = almondai::chat::make_backend(kind, std::move(endpoint), std::move(model), std::move(api_key));
                         chat_kind = kind;
-                        service.set_chat_backend(chat_backend.get(), almondai::chat::kind_to_string(kind));
-                        std::cout << "Using " << almondai::chat::kind_to_string(kind)
-                                  << " chat backend.\n";
+                        chat_route_label = route_label;
+                        service.set_chat_backend(chat_backend.get(), route_label);
+                        if (allow_defaults) {
+                            std::cout << "Using lmstudio (OpenAI-compatible) chat backend.\n";
+                        } else {
+                            std::cout << "Using " << almondai::chat::kind_to_string(kind)
+                                      << " chat backend.\n";
+                        }
                     }
                     catch (const std::exception& ex) {
                         std::cout << "Failed to configure chat backend: " << ex.what() << "\n";
@@ -446,13 +523,17 @@ int main() {
                 }
                 if (subcommand == "clear") {
                     if (chat_kind) {
-                        std::cout << "Chat backend '" << almondai::chat::kind_to_string(*chat_kind)
+                        const std::string label = chat_route_label.empty()
+                            ? almondai::chat::kind_to_string(*chat_kind)
+                            : chat_route_label;
+                        std::cout << "Chat backend '" << label
                                   << "' cleared. Local model enabled.\n";
                     } else {
                         std::cout << "Chat backend cleared. Local model enabled.\n";
                     }
                     chat_backend.reset();
                     chat_kind.reset();
+                    chat_route_label.clear();
                     service.set_chat_backend(nullptr);
                     continue;
                 }
