@@ -530,6 +530,7 @@ const statusEl = $('status');
 const statusDot = $('statusDot');
 const errEl = $('error');
 const settingsDialog = $('settingsDialog');
+const apiKeyInput = $('apiKey');
 
 if (settingsDialog && typeof settingsDialog.showModal !== 'function') {
   settingsDialog.classList.add('fallback');
@@ -599,6 +600,11 @@ function setBusy(busy) {
 
 function showError(msg) {
   errEl.textContent = msg || '';
+}
+
+function authHeaders() {
+  const apiKey = apiKeyInput.value.trim();
+  return apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
 }
 
 function normalizeEndpoint(raw) {
@@ -677,8 +683,17 @@ $('probe').onclick = async () => {
   setStatus('Probing…', 'busy');
   const url = currentEndpoint().replace(/\/v1\/chat\/completions.*$/, '/v1/models');
   try {
-    const r = await fetch(url, { method: 'GET' });
-    const js = await r.json();
+    const r = await fetch(url, { method: 'GET', headers: authHeaders() });
+    let js = null;
+    try { js = await r.json(); }
+    catch (err) {
+      console.error('Probe JSON parse failed', err);
+    }
+    if (!r.ok || !js) {
+      const message = js?.error?.message || `HTTP ${r.status}`;
+      setStatus(message, 'error');
+      return;
+    }
     const total = Array.isArray(js.data) ? js.data.length : (js.models?.length || 0);
     setStatus(`Models: ${total}`, 'idle');
   } catch (e) {
@@ -691,8 +706,17 @@ $('autofill').onclick = async () => {
   setStatus('Fetching models…', 'busy');
   const url = currentEndpoint().replace(/\/v1\/chat\/completions.*$/, '/v1/models');
   try {
-    const r = await fetch(url, { method: 'GET' });
-    const js = await r.json();
+    const r = await fetch(url, { method: 'GET', headers: authHeaders() });
+    let js = null;
+    try { js = await r.json(); }
+    catch (err) {
+      console.error('Autofill JSON parse failed', err);
+    }
+    if (!r.ok || !js) {
+      const message = js?.error?.message || `HTTP ${r.status}`;
+      setStatus(message, 'error');
+      return;
+    }
     const id = js?.data?.[0]?.id || js?.models?.[0]?.id;
     if (id) {
       $('model').value = id;
@@ -715,7 +739,7 @@ async function sendMessage(text, { regenerate = false } = {}) {
   const temperature = parseFloat($('temperature').value) || 0.7;
   const max_tokens = parseInt($('max_tokens').value, 10);
   const stream = $('stream').checked;
-  const apiKey = $('apiKey').value.trim();
+  const apiKey = apiKeyInput.value.trim();
 
   if (!endpoint) return showError('Endpoint required.');
   if (!model) return showError('Model required.');
@@ -748,7 +772,10 @@ async function sendMessage(text, { regenerate = false } = {}) {
   const node = addMsg('assistant', '');
   const headers = { 'Content-Type': 'application/json' };
   if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
-  const body = { model, temperature, max_tokens, stream, messages };
+  const body = { model, temperature, stream, messages };
+  if (Number.isFinite(max_tokens) && max_tokens >= 0) {
+    body.max_tokens = max_tokens;
+  }
 
   controller = new AbortController();
   const opts = { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal };
@@ -756,13 +783,39 @@ async function sendMessage(text, { regenerate = false } = {}) {
   try {
     const r = await fetch(endpoint, opts);
     if (!stream) {
-      const js = await r.json();
+      let js = null;
+      try { js = await r.json(); }
+      catch (err) {
+        console.error('Response JSON parse failed', err);
+      }
+      if (!js) {
+        setStatus(`HTTP ${r.status}`, 'error');
+        showError('Invalid JSON response');
+        return;
+      }
+      if (!r.ok) {
+        const message = js?.error?.message || 'Request failed';
+        showError(message);
+        setStatus(`HTTP ${r.status}`, 'error');
+        return;
+      }
       const content = js?.choices?.[0]?.message?.content ?? js?.output_text ?? '';
       node.pre.textContent = content;
       history.push({ role: 'assistant', content });
-      setStatus(`HTTP ${r.status}`, r.ok ? 'idle' : 'error');
-      if (!r.ok) showError(js?.error?.message || 'Request failed');
+      setStatus(`HTTP ${r.status}`, 'idle');
     } else {
+      if (!r.ok) {
+        let message = '';
+        try {
+          const js = await r.json();
+          message = js?.error?.message || '';
+        } catch (err) {
+          console.error('Stream error JSON parse failed', err);
+        }
+        showError(message || 'Request failed');
+        setStatus(`HTTP ${r.status}`, 'error');
+        return;
+      }
       if (!r.body) {
         showError('No stream body');
         setStatus('Stream unavailable', 'error');
@@ -772,26 +825,48 @@ async function sendMessage(text, { regenerate = false } = {}) {
       const reader = r.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let streamErrored = false;
+      const processBuffer = () => {
+        const segments = buffer.split('\n\n');
+        buffer = segments.pop();
+        for (const part of segments) {
+          const lines = part.split('\n').map((line) => line.trim()).filter(Boolean);
+          if (!lines.length) continue;
+          const dataLines = lines.filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trim());
+          if (!dataLines.length) continue;
+          const payload = dataLines.join('\n');
+          if (!payload || payload === '[DONE]') continue;
+          try {
+            const js = JSON.parse(payload);
+            if (js?.error?.message) {
+              streamErrored = true;
+              showError(js.error.message);
+              setStatus('Error', 'error');
+              continue;
+            }
+            const delta = js?.choices?.[0]?.delta?.content ?? js?.output_text ?? '';
+            if (delta) {
+              updateStreaming(node.pre, delta);
+            }
+          } catch (err) {
+            console.error('Failed to parse SSE chunk', err, payload);
+          }
+        }
+      };
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split('\n\n');
-        buffer = parts.pop();
-        for (const part of parts) {
-          const line = part.trim();
-          if (!line.startsWith('data:')) continue;
-          const payload = line.slice(5).trim();
-          if (!payload || payload === '[DONE]') continue;
-          try {
-            const js = JSON.parse(payload);
-            const delta = js?.choices?.[0]?.delta?.content ?? js?.output_text ?? '';
-            if (delta) updateStreaming(node.pre, delta);
-          } catch {}
-        }
+        processBuffer();
       }
-      history.push({ role: 'assistant', content: node.pre.textContent });
-      setStatus(`HTTP ${r.status}`, r.ok ? 'idle' : 'error');
+      buffer += decoder.decode();
+      processBuffer();
+      if (!streamErrored) {
+        history.push({ role: 'assistant', content: node.pre.textContent });
+        setStatus(`HTTP ${r.status}`, 'idle');
+      } else {
+        setStatus(`HTTP ${r.status}`, 'error');
+      }
     }
   } catch (e) {
     if (e.name === 'AbortError') {

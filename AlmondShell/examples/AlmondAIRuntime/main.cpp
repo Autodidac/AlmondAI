@@ -28,6 +28,7 @@
 #include "../../../AlmondAI/include/almondai/chat/backend.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <charconv>
 #include <cstdlib>
@@ -107,6 +108,86 @@ int main() {
         return value;
     };
 
+    auto normalize_endpoint = [](std::string value) {
+        auto trim_in_place = [](std::string& text) {
+            auto not_space = [](unsigned char ch) { return !std::isspace(ch); };
+            text.erase(text.begin(), std::find_if(text.begin(), text.end(), not_space));
+            text.erase(std::find_if(text.rbegin(), text.rend(), not_space).base(), text.end());
+        };
+
+        auto strip_query_fragment = [](std::string& text) {
+            const std::size_t pos = text.find_first_of("?#");
+            if (pos != std::string::npos) {
+                text.erase(pos);
+            }
+        };
+
+        auto remove_trailing_slashes = [](std::string& text) {
+            while (!text.empty() && text.back() == '/') {
+                text.pop_back();
+            }
+        };
+
+        auto lower_copy = [](const std::string& text) {
+            std::string lower(text);
+            std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) {
+                return static_cast<char>(std::tolower(c));
+            });
+            return lower;
+        };
+
+        trim_in_place(value);
+        if (value.empty()) {
+            return value;
+        }
+
+        if (value.rfind("http://", 0) != 0 && value.rfind("https://", 0) != 0) {
+            value = "http://" + value;
+        }
+
+        strip_query_fragment(value);
+        remove_trailing_slashes(value);
+
+        const std::string completions = "/v1/chat/completions";
+        std::string lower = lower_copy(value);
+        const std::size_t completions_pos = lower.find(completions);
+        if (completions_pos != std::string::npos) {
+            value = value.substr(0, completions_pos + completions.size());
+            remove_trailing_slashes(value);
+            return value;
+        }
+
+        const std::array<std::string, 3> patterns = {"/v1/chat/completions", "/v1/models", "/v1"};
+        for (const auto& pattern : patterns) {
+            lower = lower_copy(value);
+            const std::size_t pos = lower.find(pattern);
+            if (pos != std::string::npos) {
+                value = value.substr(0, pos);
+                remove_trailing_slashes(value);
+            }
+        }
+
+        remove_trailing_slashes(value);
+        if (!value.empty()) {
+            value += completions;
+        }
+        return value;
+    };
+
+    auto is_openai_compatible = [](almondai::chat::Kind kind) {
+        switch (kind) {
+        case almondai::chat::Kind::OpenAICompat:
+        case almondai::chat::Kind::H2O:
+        case almondai::chat::Kind::HuggingFace:
+        case almondai::chat::Kind::OpenRouter:
+        case almondai::chat::Kind::TogetherAI:
+        case almondai::chat::Kind::DeepInfra:
+            return true;
+        default:
+            return false;
+        }
+    };
+
     std::string env_kind = getenv_string("ALMONDAI_CHAT_KIND");
     std::string env_endpoint = getenv_string("ALMONDAI_ENDPOINT");
     std::string env_model = getenv_string("ALMONDAI_MODEL");
@@ -141,6 +222,9 @@ int main() {
         }
         try {
             almondai::chat::Kind parsed = almondai::chat::parse_kind(env_kind);
+            if (is_openai_compatible(parsed) && !env_endpoint.empty()) {
+                env_endpoint = normalize_endpoint(env_endpoint);
+            }
             const std::string route_label = lowered_kind == "lmstudio"
                 ? std::string{"lmstudio"}
                 : almondai::chat::kind_to_string(parsed);
@@ -507,6 +591,9 @@ int main() {
 
                     try {
                         almondai::chat::Kind kind = almondai::chat::parse_kind(args[0]);
+                        if (is_openai_compatible(kind)) {
+                            endpoint = normalize_endpoint(endpoint);
+                        }
                         const std::string route_label = allow_defaults
                             ? std::string{"lmstudio"}
                             : almondai::chat::kind_to_string(kind);
