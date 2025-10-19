@@ -246,7 +246,10 @@ int main() {
     }
 
     std::cout << "AlmondAI interactive console\n"
+        "Type plain text to chat with the active model or backend.\n"
+        "Prefix commands with '/' or use the keywords below (e.g. 'help').\n"
         "Type 'help' to list available commands or 'exit' to quit.\n"
+        "Use '\\' before a message when you need to send text that matches a command name.\n"
         "Use 'chat use' to connect to an external backend or 'chat clear' to return to local inference.\n"
         "Use 'chat use lmstudio' to auto-connect to a local LM Studio instance.\n"
         "Remote LM Studio replies automatically train the student model.\n";
@@ -520,18 +523,427 @@ int main() {
         return saw_result || saw_batch;
     };
 
+    struct UsageStats {
+        std::optional<int> prompt_tokens;
+        std::optional<int> completion_tokens;
+        std::optional<int> total_tokens;
+    };
+
+    struct TurnRecord {
+        std::size_t turn_id = 0;
+        std::string prompt;
+        std::string response;
+        std::string route;
+        std::string backend;
+        bool remote_route = false;
+        bool allowed_for_training = true;
+        bool auto_training_attempted = false;
+        bool auto_training_success = false;
+        bool implicit = false;
+        std::vector<std::string> notes;
+        UsageStats usage;
+    };
+
+    auto parse_optional_int = [](const Json& value) -> std::optional<int> {
+        return std::visit(
+            [](const auto& raw) -> std::optional<int> {
+                using T = std::decay_t<decltype(raw)>;
+                if constexpr (std::is_same_v<T, double>) {
+                    return static_cast<int>(raw);
+                }
+                else if constexpr (std::is_same_v<T, bool>) {
+                    return raw ? std::optional<int>{1} : std::optional<int>{0};
+                }
+                else if constexpr (std::is_same_v<T, std::string>) {
+                    try {
+                        std::size_t idx = 0;
+                        int parsed = std::stoi(raw, &idx);
+                        if (idx == raw.size()) {
+                            return parsed;
+                        }
+                    }
+                    catch (...) {
+                    }
+                    return std::nullopt;
+                }
+                else {
+                    return std::nullopt;
+                }
+            },
+            value.value());
+    };
+
+    auto parse_optional_double = [](const Json& value) -> std::optional<double> {
+        return std::visit(
+            [](const auto& raw) -> std::optional<double> {
+                using T = std::decay_t<decltype(raw)>;
+                if constexpr (std::is_same_v<T, double>) {
+                    return raw;
+                }
+                else if constexpr (std::is_same_v<T, bool>) {
+                    return raw ? std::optional<double>{1.0} : std::optional<double>{0.0};
+                }
+                else if constexpr (std::is_same_v<T, std::string>) {
+                    try {
+                        std::size_t idx = 0;
+                        double parsed = std::stod(raw, &idx);
+                        if (idx == raw.size()) {
+                            return parsed;
+                        }
+                    }
+                    catch (...) {
+                    }
+                    return std::nullopt;
+                }
+                else {
+                    return std::nullopt;
+                }
+            },
+            value.value());
+    };
+
+    auto parse_bool_value = [](const Json& value, bool fallback) -> bool {
+        return std::visit(
+            [fallback](const auto& raw) -> bool {
+                using T = std::decay_t<decltype(raw)>;
+                if constexpr (std::is_same_v<T, bool>) {
+                    return raw;
+                }
+                else if constexpr (std::is_same_v<T, double>) {
+                    return raw != 0.0;
+                }
+                else if constexpr (std::is_same_v<T, std::string>) {
+                    std::string lowered = raw;
+                    std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char ch) {
+                        return static_cast<char>(std::tolower(ch));
+                    });
+                    if (lowered == "true" || lowered == "1" || lowered == "yes") {
+                        return true;
+                    }
+                    if (lowered == "false" || lowered == "0" || lowered == "no") {
+                        return false;
+                    }
+                    return fallback;
+                }
+                else {
+                    return fallback;
+                }
+            },
+            value.value());
+    };
+
+    auto format_usage = [](const UsageStats& usage) -> std::string {
+        std::ostringstream oss;
+        bool first = true;
+        if (usage.prompt_tokens) {
+            oss << (first ? "" : ", ") << "prompt=" << *usage.prompt_tokens;
+            first = false;
+        }
+        if (usage.completion_tokens) {
+            oss << (first ? "" : ", ") << "completion=" << *usage.completion_tokens;
+            first = false;
+        }
+        if (usage.total_tokens) {
+            oss << (first ? "" : ", ") << "total=" << *usage.total_tokens;
+            first = false;
+        }
+        return oss.str();
+    };
+
+    auto print_block = [](const std::string& label, const std::string& text) {
+        if (text.empty()) {
+            return;
+        }
+        std::cout << label << '\n';
+        std::istringstream stream(text);
+        std::string line;
+        while (std::getline(stream, line)) {
+            std::cout << "  " << line << '\n';
+        }
+    };
+
+    std::vector<TurnRecord> conversation;
+    std::size_t turn_counter = 1;
+
+    auto handle_generation = [&](const std::string& prompt_text, bool implicit_chat) {
+        std::string prompt = prompt_text;
+        if (prompt.empty()) {
+            std::cout << "Prompt cannot be empty.\n";
+            return;
+        }
+
+        JsonObject params;
+        params["prompt"] = Json(prompt);
+        auto result = invoke_service("model.generate", Json(params));
+        if (!result) {
+            result = invoke_service("generate", Json(params));
+        }
+
+        TurnRecord record;
+        record.turn_id = turn_counter++;
+        record.prompt = prompt;
+        record.implicit = implicit_chat;
+
+        bool remote_route_used = false;
+        std::string backend_label_for_training;
+        std::string captured_output;
+        bool have_output_text = false;
+        bool allowed_for_training = true;
+        std::string observed_route;
+        std::vector<std::string> notes;
+
+        if (!result) {
+            notes.push_back("no response from service");
+        }
+        else if (result->is_object()) {
+            const auto& obj = result->as_object();
+            if (auto it = obj.find("output"); it != obj.end() && it->second.is_string()) {
+                captured_output = it->second.as_string();
+                have_output_text = true;
+            }
+            else if (auto t = obj.find("text"); t != obj.end() && t->second.is_string()) {
+                captured_output = t->second.as_string();
+                have_output_text = true;
+            }
+            if (auto route_it = obj.find("route"); route_it != obj.end() && route_it->second.is_string()) {
+                observed_route = route_it->second.as_string();
+                if (!observed_route.empty()) {
+                    if (observed_route == "remote") {
+                        remote_route_used = true;
+                    }
+                }
+            }
+            if (auto backend_it = obj.find("backend"); backend_it != obj.end() && backend_it->second.is_string()) {
+                backend_label_for_training = backend_it->second.as_string();
+            }
+            if (auto allowed_it = obj.find("allowed"); allowed_it != obj.end()) {
+                allowed_for_training = parse_bool_value(allowed_it->second, allowed_for_training);
+            }
+            if (auto err_it = obj.find("remote_error"); err_it != obj.end() && err_it->second.is_string()) {
+                notes.push_back("remote error: " + err_it->second.as_string());
+            }
+            if (auto fallback_it = obj.find("fallback"); fallback_it != obj.end() && fallback_it->second.is_object()) {
+                const auto& fb = fallback_it->second.as_object();
+                if (auto fb_msg = fb.find("output"); fb_msg != fb.end() && fb_msg->second.is_string()) {
+                    notes.push_back("fallback: " + fb_msg->second.as_string());
+                }
+            }
+            if (auto usage_it = obj.find("usage"); usage_it != obj.end() && usage_it->second.is_object()) {
+                const auto& usage_obj = usage_it->second.as_object();
+                if (auto pt = usage_obj.find("prompt_tokens"); pt != usage_obj.end()) {
+                    record.usage.prompt_tokens = parse_optional_int(pt->second);
+                }
+                if (auto ct = usage_obj.find("completion_tokens"); ct != usage_obj.end()) {
+                    record.usage.completion_tokens = parse_optional_int(ct->second);
+                }
+                if (auto tt = usage_obj.find("total_tokens"); tt != usage_obj.end()) {
+                    record.usage.total_tokens = parse_optional_int(tt->second);
+                }
+            }
+            if (!have_output_text) {
+                notes.push_back("service responded without textual output");
+            }
+        }
+        else if (result->is_string()) {
+            captured_output = result->as_string();
+            have_output_text = !captured_output.empty();
+            if (!have_output_text) {
+                notes.push_back("empty response");
+            }
+        }
+        else {
+            notes.push_back("unexpected response format");
+        }
+
+        record.response = captured_output;
+        record.route = observed_route;
+        record.backend = backend_label_for_training;
+        record.remote_route = remote_route_used;
+        record.allowed_for_training = allowed_for_training;
+
+        if (auto_train_remote && remote_route_used) {
+            record.auto_training_attempted = true;
+            if (allowed_for_training && have_output_text) {
+                JsonObject train_params;
+                train_params["prompt"] = Json(prompt);
+                train_params["teacher_output"] = Json(captured_output);
+                if (!backend_label_for_training.empty()) {
+                    train_params["teacher_source"] = Json(backend_label_for_training);
+                }
+                else if (!chat_route_label.empty()) {
+                    train_params["teacher_source"] = Json(chat_route_label);
+                }
+                else {
+                    train_params["teacher_source"] = Json("lmstudio");
+                }
+
+                try {
+                    auto train_result = invoke_service("train.step", Json(train_params));
+                    if (train_result && train_result->is_object()) {
+                        const auto& train_obj = train_result->as_object();
+                        std::string status_text = "unknown";
+                        if (auto status_it = train_obj.find("status"); status_it != train_obj.end() && status_it->second.is_string()) {
+                            status_text = status_it->second.as_string();
+                        }
+                        bool have_loss_metric = false;
+                        double loss_metric = 0.0;
+                        if (auto loss_it = train_obj.find("loss"); loss_it != train_obj.end()) {
+                            if (auto parsed = parse_optional_double(loss_it->second)) {
+                                loss_metric = *parsed;
+                                have_loss_metric = true;
+                            }
+                        }
+                        bool have_accuracy_metric = false;
+                        double accuracy_metric = 0.0;
+                        if (auto acc_it = train_obj.find("accuracy"); acc_it != train_obj.end()) {
+                            if (auto parsed = parse_optional_double(acc_it->second)) {
+                                accuracy_metric = *parsed;
+                                have_accuracy_metric = true;
+                            }
+                        }
+
+                        std::ostringstream msg;
+                        if (status_text == "trained") {
+                            msg << "auto-train updated student";
+                            record.auto_training_success = true;
+                        }
+                        else if (status_text == "skipped") {
+                            msg << "auto-train skipped by curator";
+                        }
+                        else {
+                            msg << "auto-train status: " << status_text;
+                        }
+                        std::vector<std::string> metrics;
+                        if (have_loss_metric) {
+                            std::ostringstream metric;
+                            metric << std::fixed << std::setprecision(4) << "loss=" << loss_metric;
+                            metrics.push_back(metric.str());
+                        }
+                        if (have_accuracy_metric) {
+                            std::ostringstream metric;
+                            metric << std::fixed << std::setprecision(3) << "acc=" << accuracy_metric;
+                            metrics.push_back(metric.str());
+                        }
+                        if (!metrics.empty()) {
+                            msg << " (";
+                            for (std::size_t i = 0; i < metrics.size(); ++i) {
+                                if (i != 0) {
+                                    msg << ", ";
+                                }
+                                msg << metrics[i];
+                            }
+                            msg << ")";
+                        }
+                        notes.push_back(msg.str());
+                    }
+                    else {
+                        notes.push_back("auto-train: no response");
+                    }
+                }
+                catch (const std::exception& ex) {
+                    notes.push_back(std::string("auto-train failed: ") + ex.what());
+                }
+            }
+            else if (!allowed_for_training) {
+                notes.push_back("auto-train skipped: output blocked by governor");
+            }
+            else if (!have_output_text) {
+                notes.push_back("auto-train skipped: empty response");
+            }
+        }
+
+        std::string route_display;
+        if (!observed_route.empty()) {
+            route_display = observed_route;
+        }
+        else {
+            route_display = remote_route_used ? "remote" : "local";
+        }
+        if (remote_route_used) {
+            if (!backend_label_for_training.empty()) {
+                route_display += " · backend=" + backend_label_for_training;
+            }
+            else if (!chat_route_label.empty()) {
+                route_display += " · backend=" + chat_route_label;
+            }
+        }
+
+        std::cout << "\n=== Turn " << record.turn_id << " (" << (implicit_chat ? "chat" : "generate") << ") ===\n";
+        print_block("[you]", prompt);
+        if (have_output_text) {
+            print_block("[assistant]", captured_output);
+        }
+        else {
+            print_block("[assistant]", have_output_text ? captured_output : std::string("(no response)"));
+        }
+        std::cout << "[route] " << route_display << '\n';
+        if (auto usage_text = format_usage(record.usage); !usage_text.empty()) {
+            std::cout << "[usage] " << usage_text << '\n';
+        }
+        if (!notes.empty()) {
+            for (const auto& note : notes) {
+                std::cout << "[note] " << note << '\n';
+            }
+        }
+        std::cout << "===============================\n";
+
+        if (record.backend.empty() && remote_route_used) {
+            record.backend = chat_route_label;
+        }
+        if (record.route.empty()) {
+            record.route = remote_route_used ? "remote" : "local";
+        }
+        record.notes = notes;
+        conversation.push_back(std::move(record));
+    };
+
     std::string line;
     while (std::cout << "AlmondAI> " && std::getline(std::cin, line)) {
         trim(line);
         if (line.empty()) continue;
 
+        bool force_prompt = false;
+        if (!line.empty() && line.front() == '\\') {
+            force_prompt = true;
+            line.erase(line.begin());
+            trim(line);
+        }
+
+        bool slash_command = false;
+        if (!force_prompt && !line.empty() && line.front() == '/') {
+            slash_command = true;
+            line.erase(line.begin());
+            trim(line);
+        }
+
+        if (line.empty()) {
+            if (force_prompt) {
+                std::cout << "Prompt cannot be empty.\n";
+            }
+            continue;
+        }
+
+        std::string original_line = line;
         std::istringstream iss(line);
         std::string command;
         iss >> command;
+        if (command.empty()) {
+            if (force_prompt) {
+                handle_generation(original_line, true);
+            }
+            continue;
+        }
 
-        if (command == "exit" || command == "quit") break;
+        std::string lowered_command = to_lower(command);
 
-        if (command == "help") {
+        if (force_prompt) {
+            handle_generation(original_line, true);
+            continue;
+        }
+
+        if (lowered_command == "exit" || lowered_command == "quit") break;
+
+        if (lowered_command == "help") {
             std::cout << R"(Available commands:
   help                    Show this message.
   generate <prompt>       Generate a completion and report the route/backend used.
@@ -545,16 +957,64 @@ int main() {
                           Other kinds fall back to ALMONDAI_* environment variables.
                           With 'lmstudio' active, remote replies auto-train the student.
   chat clear              Return to local student model responses.
+  history [clear]         Show or reset recorded turns and telemetry.
+  \<text>                Force-send text that would otherwise look like a command.
+  (chat)                  Type any other text to prompt the active model.
   exit | quit             Quit the console.
 )";
             continue;
         }
 
         try {
-            if (command == "chat") {
+            if (lowered_command == "history") {
+                std::string subcommand;
+                if (iss >> subcommand) {
+                    std::string lowered_sub = to_lower(subcommand);
+                    if (lowered_sub == "clear") {
+                        conversation.clear();
+                        turn_counter = 1;
+                        std::cout << "Chat history cleared.\n";
+                    }
+                    else {
+                        std::cout << "Unknown history command.\n";
+                    }
+                }
+                else {
+                    if (conversation.empty()) {
+                        std::cout << "No turns recorded yet.\n";
+                    }
+                    else {
+                        for (const auto& turn : conversation) {
+                            std::cout << "#" << turn.turn_id << " (" << (turn.implicit ? "chat" : "generate") << ")";
+                            std::cout << " route=" << (turn.route.empty() ? "n/a" : turn.route);
+                            if (!turn.backend.empty()) {
+                                std::cout << " backend=" << turn.backend;
+                            }
+                            std::cout << '\n';
+                            print_block("  [you]", turn.prompt);
+                            if (!turn.response.empty()) {
+                                print_block("  [assistant]", turn.response);
+                            }
+                            if (auto usage_text = format_usage(turn.usage); !usage_text.empty()) {
+                                std::cout << "  [usage] " << usage_text << '\n';
+                            }
+                            if (!turn.notes.empty()) {
+                                for (const auto& note : turn.notes) {
+                                    std::cout << "  [note] " << note << '\n';
+                                }
+                            }
+                            std::cout << '\n';
+                        }
+                    }
+                }
+                continue;
+            }
+
+            if (lowered_command == "chat") {
                 std::string subcommand;
                 iss >> subcommand;
-                if (subcommand == "use") {
+                std::string lowered_sub = to_lower(subcommand);
+                if (lowered_sub == "use") {
                     std::vector<std::string> args;
                     std::string token;
                     while (iss >> token) {
@@ -574,7 +1034,8 @@ int main() {
                     if (endpoint.empty()) {
                         if (allow_defaults) {
                             endpoint = "http://127.0.0.1:1234/v1/chat/completions";
-                        } else {
+                        }
+                        else {
                             std::cout << "Endpoint required for chat backend.\n";
                             continue;
                         }
@@ -583,7 +1044,8 @@ int main() {
                     if (model.empty()) {
                         if (allow_defaults) {
                             model = "lmstudio";
-                        } else {
+                        }
+                        else {
                             model = getenv_string("ALMONDAI_MODEL");
                             if (model.empty()) {
                                 std::cout << "Model required for chat backend.\n";
@@ -611,7 +1073,8 @@ int main() {
                         service.set_chat_backend(chat_backend.get(), route_label);
                         if (allow_defaults) {
                             std::cout << "Using lmstudio (OpenAI-compatible) chat backend.\n";
-                        } else {
+                        }
+                        else {
                             std::cout << "Using " << almondai::chat::kind_to_string(kind)
                                       << " chat backend.\n";
                         }
@@ -624,14 +1087,15 @@ int main() {
                     }
                     continue;
                 }
-                if (subcommand == "clear") {
+                if (lowered_sub == "clear") {
                     if (chat_kind) {
                         const std::string label = chat_route_label.empty()
                             ? almondai::chat::kind_to_string(*chat_kind)
                             : chat_route_label;
                         std::cout << "Chat backend '" << label
                                   << "' cleared. Local model enabled.\n";
-                    } else {
+                    }
+                    else {
                         std::cout << "Chat backend cleared. Local model enabled.\n";
                     }
                     chat_backend.reset();
@@ -645,230 +1109,15 @@ int main() {
                 continue;
             }
 
-            if (command == "generate") {
+            if (lowered_command == "generate") {
                 std::string prompt;
                 std::getline(iss, prompt);
                 trim(prompt);
-                if (prompt.empty()) { std::cout << "Prompt cannot be empty.\n"; continue; }
-
-                JsonObject params;
-                params["prompt"] = Json(prompt);
-                auto result = invoke_service("model.generate", Json(params));
-                if (!result) {
-                    result = invoke_service("generate", Json(params));
-                }
-                bool remote_route_used = false;
-                std::string backend_label_for_training;
-                std::string captured_output;
-                bool have_output_text = false;
-                bool allowed_for_training = true;
-
-                auto parse_bool = [](const Json& value, bool fallback) -> bool {
-                    return std::visit([
-                                          fallback
-                                      ](const auto& raw) -> bool {
-                        using T = std::decay_t<decltype(raw)>;
-                        if constexpr (std::is_same_v<T, bool>) {
-                            return raw;
-                        }
-                        else if constexpr (std::is_same_v<T, double>) {
-                            return raw != 0.0;
-                        }
-                        else if constexpr (std::is_same_v<T, std::string>) {
-                            std::string lowered = raw;
-                            std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char ch) {
-                                return static_cast<char>(std::tolower(ch));
-                            });
-                            if (lowered == "true" || lowered == "1" || lowered == "yes") {
-                                return true;
-                            }
-                            if (lowered == "false" || lowered == "0" || lowered == "no") {
-                                return false;
-                            }
-                            return fallback;
-                        }
-                        else {
-                            return fallback;
-                        }
-                    }, value.value());
-                };
-
-                if (result && result->is_object()) {
-                    const auto& obj = result->as_object();
-                    if (auto it = obj.find("output"); it != obj.end() && it->second.is_string()) {
-                        captured_output = it->second.as_string();
-                        have_output_text = true;
-                        std::cout << captured_output << "\n";
-                    }
-                    else if (auto t = obj.find("text"); t != obj.end() && t->second.is_string()) {
-                        captured_output = t->second.as_string();
-                        have_output_text = true;
-                        std::cout << captured_output << "\n";
-                    }
-                    else {
-                        std::cout << "No output returned.\n";
-                    }
-                    if (auto route_it = obj.find("route"); route_it != obj.end() && route_it->second.is_string()) {
-                        const std::string route = route_it->second.as_string();
-                        if (!route.empty()) {
-                            std::cout << "[route: " << route;
-                            if (route == "remote") {
-                                remote_route_used = true;
-                            }
-                            if (route != "local") {
-                                if (auto backend_it = obj.find("backend"); backend_it != obj.end() && backend_it->second.is_string()) {
-                                    backend_label_for_training = backend_it->second.as_string();
-                                    std::cout << ", backend: " << backend_label_for_training;
-                                }
-                            }
-                            std::cout << "]\n";
-                        }
-                    }
-                    if (auto allowed_it = obj.find("allowed"); allowed_it != obj.end()) {
-                        allowed_for_training = parse_bool(allowed_it->second, allowed_for_training);
-                    }
-                    if (auto err_it = obj.find("remote_error"); err_it != obj.end() && err_it->second.is_string()) {
-                        std::cout << "(remote error: " << err_it->second.as_string() << ")\n";
-                    }
-                    if (auto fallback_it = obj.find("fallback"); fallback_it != obj.end() && fallback_it->second.is_object()) {
-                        const auto& fb = fallback_it->second.as_object();
-                        if (auto fb_msg = fb.find("output"); fb_msg != fb.end() && fb_msg->second.is_string()) {
-                            std::cout << "[fallback notice: " << fb_msg->second.as_string() << "]\n";
-                        }
-                    }
-                }
-                else if (result && result->is_string()) {
-                    const std::string text = result->as_string();
-                    if (!text.empty()) {
-                        std::cout << text << "\n";
-                    }
-                    else {
-                        std::cout << "(empty response)\n";
-                    }
-                }
-                else {
-                    std::cout << "(no response)\n";
-                }
-
-                if (auto_train_remote && remote_route_used && have_output_text && allowed_for_training) {
-                    JsonObject train_params;
-                    train_params["prompt"] = Json(prompt);
-                    train_params["teacher_output"] = Json(captured_output);
-                    if (!backend_label_for_training.empty()) {
-                        train_params["teacher_source"] = Json(backend_label_for_training);
-                    }
-                    else if (!chat_route_label.empty()) {
-                        train_params["teacher_source"] = Json(chat_route_label);
-                    }
-                    else {
-                        train_params["teacher_source"] = Json("lmstudio");
-                    }
-
-                    auto parse_double = [](const Json& value, double fallback) -> double {
-                        return std::visit([
-                                              fallback
-                                          ](const auto& raw) -> double {
-                            using T = std::decay_t<decltype(raw)>;
-                            if constexpr (std::is_same_v<T, double>) {
-                                return raw;
-                            }
-                            else if constexpr (std::is_same_v<T, bool>) {
-                                return raw ? 1.0 : 0.0;
-                            }
-                            else if constexpr (std::is_same_v<T, std::string>) {
-                                try {
-                                    std::size_t idx = 0;
-                                    double parsed = std::stod(raw, &idx);
-                                    if (idx == raw.size()) {
-                                        return parsed;
-                                    }
-                                }
-                                catch (...) {
-                                }
-                                return fallback;
-                            }
-                            else {
-                                return fallback;
-                            }
-                        }, value.value());
-                    };
-
-                    try {
-                        auto train_result = invoke_service("train.step", Json(train_params));
-                        if (train_result && train_result->is_object()) {
-                            const auto& train_obj = train_result->as_object();
-                            std::string status_text = "unknown";
-                            if (auto status_it = train_obj.find("status"); status_it != train_obj.end() && status_it->second.is_string()) {
-                                status_text = status_it->second.as_string();
-                            }
-                            bool have_loss_metric = false;
-                            double loss_metric = 0.0;
-                            if (auto loss_it = train_obj.find("loss"); loss_it != train_obj.end()) {
-                                loss_metric = parse_double(loss_it->second, loss_metric);
-                                have_loss_metric = true;
-                            }
-                            bool have_accuracy_metric = false;
-                            double accuracy_metric = 0.0;
-                            if (auto acc_it = train_obj.find("accuracy"); acc_it != train_obj.end()) {
-                                accuracy_metric = parse_double(acc_it->second, accuracy_metric);
-                                have_accuracy_metric = true;
-                            }
-
-                            std::ostringstream msg;
-                            msg << "[lmstudio auto-train: ";
-                            if (status_text == "trained") {
-                                msg << "updated student";
-                                std::vector<std::string> metrics;
-                                if (have_loss_metric) {
-                                    std::ostringstream metric;
-                                    metric << std::fixed << std::setprecision(4) << "loss=" << loss_metric;
-                                    metrics.push_back(metric.str());
-                                }
-                                if (have_accuracy_metric) {
-                                    std::ostringstream metric;
-                                    metric << std::fixed << std::setprecision(3) << "acc=" << accuracy_metric;
-                                    metrics.push_back(metric.str());
-                                }
-                                if (!metrics.empty()) {
-                                    msg << " (";
-                                    for (std::size_t i = 0; i < metrics.size(); ++i) {
-                                        if (i != 0) {
-                                            msg << ", ";
-                                        }
-                                        msg << metrics[i];
-                                    }
-                                    msg << ")";
-                                }
-                                msg << "]";
-                            }
-                            else if (status_text == "skipped") {
-                                msg << "sample skipped by curator]";
-                            }
-                            else {
-                                msg << status_text << "]";
-                            }
-                            std::cout << msg.str() << "\n";
-                        }
-                        else {
-                            std::cout << "[lmstudio auto-train: no response]\n";
-                        }
-                    }
-                    catch (const std::exception& ex) {
-                        std::cout << "[lmstudio auto-train failed: " << ex.what() << "]\n";
-                    }
-                }
-                else if (auto_train_remote && remote_route_used) {
-                    if (!allowed_for_training) {
-                        std::cout << "[lmstudio auto-train: skipped (output blocked by governor)]\n";
-                    }
-                    else if (!have_output_text) {
-                        std::cout << "[lmstudio auto-train: skipped (empty response)]\n";
-                    }
-                }
+                handle_generation(prompt, false);
                 continue;
             }
 
-            if (command == "retrieve") {
+            if (lowered_command == "retrieve") {
                 std::string query;
                 std::getline(iss, query);
                 trim(query);
@@ -956,7 +1205,7 @@ int main() {
                 continue;
             }
 
-            if (command == "train") {
+            if (lowered_command == "train") {
                 std::vector<std::string> args;
                 std::string token;
                 while (iss >> token) {
@@ -1020,7 +1269,7 @@ int main() {
                 continue;
             }
 
-            if (command == "hot-swap") {
+            if (lowered_command == "hot-swap") {
                 std::string name;
                 std::getline(iss, name);
                 trim(name);
@@ -1058,7 +1307,13 @@ int main() {
                 continue;
             }
 
-            std::cout << "Unknown command. Type 'help' for a list of commands.\n";
+            if (!slash_command) {
+                handle_generation(original_line, true);
+            }
+            else {
+                std::cout << "Unknown command. Type 'help' for a list of commands.\n";
+            }
+            continue;
         }
         catch (const std::exception& ex) {
             std::cout << "Error: " << ex.what() << "\n";
