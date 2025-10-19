@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -30,12 +31,22 @@ struct TrainingStats {
     JsonArray learning_trace;
 };
 
+struct LoadStatus {
+    std::string phase;
+    std::string detail;
+    std::size_t completed = 0;
+    std::size_t total = 0;
+};
+
+using LoadStatusCallback = std::function<void(const LoadStatus&)>;
+
 class ContinuousLearner {
 public:
     ContinuousLearner(StudentModel student,
                       AdapterManager adapters,
                       WordTokenizer tokenizer,
-                      PolicyGovernor governor);
+                      PolicyGovernor governor,
+                      LoadStatusCallback load_callback = LoadStatusCallback());
 
     std::optional<CuratedSample> ingest(const std::string& prompt,
                                          const std::string& teacher_output,
@@ -61,6 +72,7 @@ public:
     PolicyGovernor& governor() { return m_governor; }
 
     const CuratedSample* recall_sample(const std::string& document_id) const;
+    void set_load_status_callback(LoadStatusCallback callback);
 
 private:
     StudentModel m_student;
@@ -75,12 +87,17 @@ private:
     std::unordered_map<std::string, std::size_t> m_document_to_index;
     std::ofstream m_log_file;
     std::size_t m_step = 0;
+    LoadStatusCallback m_load_status_callback;
 
     void log_stats(const TrainingStats& stats);
     void load_persistent_data();
-    void load_samples_from_file(const std::filesystem::path& path);
+    void load_samples_from_file(const std::filesystem::path& path, std::size_t total_samples_hint);
     void persist_sample(const CuratedSample& sample);
     std::string derive_document_id(const CuratedSample& sample, std::size_t index) const;
+    void report_load_status(std::string_view phase,
+                            std::string_view detail,
+                            std::size_t completed = 0,
+                            std::size_t total = 0);
 };
 
 } // namespace almondai
