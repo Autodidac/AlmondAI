@@ -15,7 +15,11 @@ Set these before launching `almondai_app`:
 | `ALMONDAI_GPT_MODEL` | Optional model name sent to the API. Defaults to `gpt-4o-mini`. | `export ALMONDAI_GPT_MODEL="gpt-4o-mini"` |
 
 If the key is missing the runtime falls back to a placeholder teacher response and
-continues to accept manually provided `teacher_output` values.
+continues to accept manually provided `teacher_output` values. When supplying
+answers from other LLMs you can add a `teacher_source` string to the
+`train.step`/`ingest.step` payload so AlmondAI records which provider supplied
+the supervision; see [`TEACHER_BACKENDS.md`](TEACHER_BACKENDS.md) for the list of
+supported integrations.
 
 ## Request contract
 

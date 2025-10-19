@@ -294,12 +294,15 @@ struct TeacherFetchOutcome {
     bool used_local = false;
     JsonObject fallback;
     std::string remote_error;
+    std::string route;
+    std::string source_label;
 };
 
 TeacherFetchOutcome fetch_teacher_output(ContinuousLearner& learner,
                                          MCPBridge& bridge,
                                          const std::string& prompt,
-                                         const Json& constraints) {
+                                         const Json& constraints,
+                                         const std::string& remote_label) {
     TeacherFetchOutcome outcome;
     if (prompt.empty()) {
         outcome.placeholder = true;
@@ -307,6 +310,8 @@ TeacherFetchOutcome fetch_teacher_output(ContinuousLearner& learner,
         if (auto it = outcome.fallback.find("output"); it != outcome.fallback.end() && it->second.is_string()) {
             outcome.output = it->second.as_string();
         }
+        outcome.route = "fallback";
+        outcome.source_label = "fallback_teacher";
         return outcome;
     }
 
@@ -333,11 +338,21 @@ TeacherFetchOutcome fetch_teacher_output(ContinuousLearner& learner,
             if (auto err_it = payload.find("error"); err_it != payload.end() && err_it->second.is_string()) {
                 outcome.remote_error = err_it->second.as_string();
             }
+            if (auto prov_it = payload.find("provenance"); prov_it != payload.end() && prov_it->second.is_object()) {
+                const auto& prov = prov_it->second.as_object();
+                if (auto src_it = prov.find("source"); src_it != prov.end() && src_it->second.is_string()) {
+                    outcome.source_label = src_it->second.as_string();
+                }
+            }
         }
     }
 
     const bool placeholder = payload.empty() || has_placeholder_status(payload);
     if (!outcome.output.empty() && !placeholder) {
+        outcome.route = "remote";
+        if (outcome.source_label.empty()) {
+            outcome.source_label = remote_label.empty() ? std::string{"remote_teacher"} : remote_label;
+        }
         return outcome;
     }
 
@@ -353,6 +368,10 @@ TeacherFetchOutcome fetch_teacher_output(ContinuousLearner& learner,
     LocalGenerationOutcome local = generate_with_student(learner, ctx, settings);
     outcome.output = local.output;
     outcome.used_local = true;
+    outcome.route = local.used_fallback ? "fallback" : "local";
+    if (outcome.source_label.empty()) {
+        outcome.source_label = local.used_fallback ? "fallback_teacher" : "local_student";
+    }
     if (local.used_fallback) {
         outcome.fallback = local.fallback_payload;
     }
@@ -631,13 +650,17 @@ JsonObject Service::handle_request(const MCPBridge::Request& request) {
         const auto& params = request.params.as_object();
         const std::string prompt = extract_string(params, "prompt");
         std::string teacher_output = extract_string(params, "teacher_output");
+        std::string teacher_source = extract_string(params, "teacher_source");
         Json constraints = ensure_constraints(params);
         TeacherFetchOutcome teacher;
         bool fetched = false;
         if (teacher_output.empty()) {
-            teacher = fetch_teacher_output(*m_learner, m_bridge, prompt, constraints);
+            teacher = fetch_teacher_output(*m_learner, m_bridge, prompt, constraints, m_chat_route);
             teacher_output = teacher.output;
             fetched = true;
+            if (!teacher.source_label.empty()) {
+                teacher_source = teacher.source_label;
+            }
         }
         const std::string hash = ensure_prompt_hash(params, prompt);
 
@@ -645,6 +668,9 @@ JsonObject Service::handle_request(const MCPBridge::Request& request) {
         if (teacher_output.empty()) {
             payload["output"] = Json("Teacher response unavailable.");
             payload["accepted"] = Json(false);
+            if (!teacher_source.empty()) {
+                payload["teacher_source"] = Json(teacher_source);
+            }
             if (fetched && !teacher.fallback.empty()) {
                 payload["fallback"] = Json(teacher.fallback);
             }
@@ -658,10 +684,25 @@ JsonObject Service::handle_request(const MCPBridge::Request& request) {
             return payload;
         }
 
-        auto curated = m_learner->ingest(prompt, teacher_output, constraints, hash);
+        if (teacher_source.empty()) {
+            if (fetched) {
+                if (teacher.route == "remote") {
+                    teacher_source = m_chat_route.empty() ? "remote_teacher" : m_chat_route;
+                } else if (teacher.route == "local") {
+                    teacher_source = "local_student";
+                } else {
+                    teacher_source = "fallback_teacher";
+                }
+            } else {
+                teacher_source = "external_teacher";
+            }
+        }
+
+        auto curated = m_learner->ingest(prompt, teacher_output, constraints, hash, teacher_source);
         payload["accepted"] = Json(curated.has_value());
         payload["teacher_output"] = Json(teacher_output);
         payload["output"] = Json(curated ? "Sample ingested." : "Sample rejected by curator.");
+        payload["teacher_source"] = Json(teacher_source);
         if (fetched && !teacher.fallback.empty()) {
             payload["fallback"] = Json(teacher.fallback);
         }
@@ -679,13 +720,17 @@ JsonObject Service::handle_request(const MCPBridge::Request& request) {
         const auto& params = request.params.as_object();
         const std::string prompt = extract_string(params, "prompt");
         std::string teacher_output = extract_string(params, "teacher_output");
+        std::string teacher_source = extract_string(params, "teacher_source");
         Json constraints = ensure_constraints(params);
         TeacherFetchOutcome teacher;
         bool fetched = false;
         if (teacher_output.empty()) {
-            teacher = fetch_teacher_output(*m_learner, m_bridge, prompt, constraints);
+            teacher = fetch_teacher_output(*m_learner, m_bridge, prompt, constraints, m_chat_route);
             teacher_output = teacher.output;
             fetched = true;
+            if (!teacher.source_label.empty()) {
+                teacher_source = teacher.source_label;
+            }
         }
         const std::string hash = ensure_prompt_hash(params, prompt);
 
@@ -693,6 +738,9 @@ JsonObject Service::handle_request(const MCPBridge::Request& request) {
         if (teacher_output.empty()) {
             payload["output"] = Json("Teacher model unavailable.");
             payload["status"] = Json("teacher_unavailable");
+            if (!teacher_source.empty()) {
+                payload["teacher_source"] = Json(teacher_source);
+            }
             if (fetched && !teacher.fallback.empty()) {
                 payload["fallback"] = Json(teacher.fallback);
             }
@@ -706,10 +754,25 @@ JsonObject Service::handle_request(const MCPBridge::Request& request) {
             return payload;
         }
 
-        auto curated = m_learner->ingest(prompt, teacher_output, constraints, hash);
+        if (teacher_source.empty()) {
+            if (fetched) {
+                if (teacher.route == "remote") {
+                    teacher_source = m_chat_route.empty() ? "remote_teacher" : m_chat_route;
+                } else if (teacher.route == "local") {
+                    teacher_source = "local_student";
+                } else {
+                    teacher_source = "fallback_teacher";
+                }
+            } else {
+                teacher_source = "external_teacher";
+            }
+        }
+
+        auto curated = m_learner->ingest(prompt, teacher_output, constraints, hash, teacher_source);
         if (!curated) {
             payload["output"] = Json("Sample skipped by curator.");
             payload["status"] = Json("skipped");
+            payload["teacher_source"] = Json(teacher_source);
             if (fetched && !teacher.fallback.empty()) {
                 payload["fallback"] = Json(teacher.fallback);
             }
@@ -731,6 +794,7 @@ JsonObject Service::handle_request(const MCPBridge::Request& request) {
         payload["adapter_norm"] = Json(stats.adapter_norm);
         payload["retrieval_hit_rate"] = Json(stats.retrieval_hit_rate);
         payload["teacher_output"] = Json(teacher_output);
+        payload["teacher_source"] = Json(teacher_source);
         if (fetched && !teacher.fallback.empty()) {
             payload["fallback"] = Json(teacher.fallback);
         }

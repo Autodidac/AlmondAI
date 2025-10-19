@@ -105,8 +105,9 @@ ContinuousLearner::ContinuousLearner(StudentModel student,
 std::optional<CuratedSample> ContinuousLearner::ingest(const std::string& prompt,
                                                        const std::string& teacher_output,
                                                        Json constraints,
-                                                       const std::string& prompt_hash) {
-    auto curated = m_curator.curate(prompt, teacher_output, std::move(constraints), prompt_hash);
+                                                       const std::string& prompt_hash,
+                                                       const std::string& teacher_source) {
+    auto curated = m_curator.curate(prompt, teacher_output, std::move(constraints), prompt_hash, teacher_source);
     if (!curated) {
         return std::nullopt;
     }
@@ -118,12 +119,24 @@ std::optional<CuratedSample> ContinuousLearner::ingest(const std::string& prompt
         m_tokenizer.save_vocab(kVocabPath.string());
     }
     m_training_data.push_back(*curated);
+    const std::size_t index = m_training_data.size() - 1;
     if (m_eval_data.size() < 16) {
         m_eval_data.push_back(*curated);
     }
-    m_retrieval.ingest_document(prompt_hash, teacher_output);
-    persist_sample(*curated);
-    return curated;
+    const std::string document_id = derive_document_id(m_training_data.back(), index);
+    if (!document_id.empty()) {
+        if (m_training_data.back().provenance.is_object()) {
+            auto& prov = m_training_data.back().provenance.as_object();
+            if (prov.find("sample_hash") == prov.end()) {
+                prov["sample_hash"] = Json(document_id);
+            }
+        }
+        m_retrieval.ingest_document(document_id, teacher_output);
+    } else {
+        m_retrieval.ingest_document(prompt_hash, teacher_output);
+    }
+    persist_sample(m_training_data.back());
+    return m_training_data.back();
 }
 
 TrainingStats ContinuousLearner::train_step(const CuratedSample& sample) {
@@ -155,6 +168,12 @@ TrainingStats ContinuousLearner::train_step(const CuratedSample& sample) {
     stats.loss = error * error;
     stats.accuracy = max_logit <= predicted ? 1.0 : 0.0;
     stats.retrieval_hit_rate = m_retrieval.hit_rate();
+    if (sample.provenance.is_object()) {
+        const auto& prov = sample.provenance.as_object();
+        if (auto src_it = prov.find("source"); src_it != prov.end() && src_it->second.is_string()) {
+            stats.teacher_source = src_it->second.as_string();
+        }
+    }
     log_stats(stats);
     m_student.base().save_weights(kWeightsPath.string());
 
@@ -174,6 +193,7 @@ TrainingStats ContinuousLearner::evaluate_canary() {
     if (const Adapter* adapter = m_adapters.active_adapter()) {
         stats.adapter_norm = adapter->norm();
     }
+    stats.teacher_source = "evaluation";
     log_stats(stats);
     return stats;
 }
@@ -267,7 +287,9 @@ void ContinuousLearner::log_stats(const TrainingStats& stats) {
                << " | accuracy=" << stats.accuracy
                << " | adapter_norm=" << stats.adapter_norm
                << " | retrieval_hit_rate=" << stats.retrieval_hit_rate
+               << " | teacher_source=" << (stats.teacher_source.empty() ? std::string{"unknown"} : stats.teacher_source)
                << '\n';
+    m_log_file.flush();
 }
 
 void ContinuousLearner::load_persistent_data() {
@@ -295,6 +317,7 @@ void ContinuousLearner::load_persistent_data() {
             JsonObject provenance;
             provenance["source"] = Json("seed");
             provenance["prompt_hash"] = Json("seed::bootstrap");
+            provenance["teacher_hash"] = Json(std::to_string(std::hash<std::string>{}(seed_sample.teacher_output)));
             seed_sample.provenance = Json(provenance);
 
             const std::size_t before_vocab = m_tokenizer.vocab().size();
@@ -312,6 +335,9 @@ void ContinuousLearner::load_persistent_data() {
             const std::string document_id = derive_document_id(seed_sample, index);
             if (!document_id.empty()) {
                 m_curator.mark_seen(document_id);
+                if (seed_sample.provenance.is_object()) {
+                    seed_sample.provenance.as_object()["sample_hash"] = Json(document_id);
+                }
                 m_retrieval.ingest_document(document_id, seed_sample.teacher_output);
             }
 
@@ -346,12 +372,25 @@ void ContinuousLearner::load_samples_from_file(const std::filesystem::path& path
             const std::string document_id = derive_document_id(sample_value, index);
             if (!document_id.empty()) {
                 m_curator.mark_seen(document_id);
+                if (sample_value.provenance.is_object()) {
+                    auto& prov = sample_value.provenance.as_object();
+                    if (prov.find("sample_hash") == prov.end()) {
+                        prov["sample_hash"] = Json(document_id);
+                    }
+                }
             }
             m_training_data.push_back(sample_value);
             if (m_eval_data.size() < 16) {
                 m_eval_data.push_back(sample_value);
             }
-            m_retrieval.ingest_document(document_id, sample_value.teacher_output);
+            if (!document_id.empty()) {
+                m_retrieval.ingest_document(document_id, sample_value.teacher_output);
+            } else {
+                std::hash<std::string> hasher;
+                std::ostringstream oss;
+                oss << "sample:" << index << ':' << hasher(sample_value.prompt + sample_value.teacher_output);
+                m_retrieval.ingest_document(oss.str(), sample_value.teacher_output);
+            }
         }
     }
     if (!m_training_data.empty()) {
@@ -378,9 +417,21 @@ void ContinuousLearner::persist_sample(const CuratedSample& sample) {
 std::string ContinuousLearner::derive_document_id(const CuratedSample& sample, std::size_t index) const {
     if (sample.provenance.is_object()) {
         const auto& prov = sample.provenance.as_object();
+        if (auto it = prov.find("sample_hash"); it != prov.end() && it->second.is_string()) {
+            const std::string& value = it->second.as_string();
+            if (!value.empty()) {
+                return value;
+            }
+        }
         if (auto it = prov.find("prompt_hash"); it != prov.end() && it->second.is_string()) {
             const std::string& value = it->second.as_string();
             if (!value.empty()) {
+                if (auto teacher_it = prov.find("teacher_hash"); teacher_it != prov.end() && teacher_it->second.is_string()) {
+                    const std::string& teacher_hash = teacher_it->second.as_string();
+                    if (!teacher_hash.empty()) {
+                        return value + "::" + teacher_hash;
+                    }
+                }
                 return value;
             }
         }

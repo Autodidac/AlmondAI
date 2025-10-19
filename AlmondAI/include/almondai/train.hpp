@@ -12,6 +12,7 @@
 #include <fstream>
 #include <filesystem>
 #include <functional>
+#include <string>
 
 namespace almondai {
 
@@ -21,6 +22,7 @@ struct TrainingStats {
     double accuracy = 0.0;
     double adapter_norm = 0.0;
     double retrieval_hit_rate = 0.0;
+    std::string teacher_source;
 };
 
 class ContinuousLearner {
@@ -33,7 +35,8 @@ public:
     std::optional<CuratedSample> ingest(const std::string& prompt,
                                          const std::string& teacher_output,
                                          Json constraints,
-                                         const std::string& prompt_hash);
+                                         const std::string& prompt_hash,
+                                         const std::string& teacher_source = std::string());
 
     TrainingStats train_step(const CuratedSample& sample);
     TrainingStats evaluate_canary();
