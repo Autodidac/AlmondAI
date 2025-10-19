@@ -1,1 +1,1 @@
-AlmondAI is a self-evolving C++23 AI engine runtime that learns from its own source code, compiler feedback, and user interaction. It integrates AI directly into the software loop, the software it outputs, enabling self-analysis, self-rebuilds, and continuous evolution across its modules.
+AlmondAI is a self-evolving C++23 AI engine runtime that learns from its own source code, compiler feedback, and user interaction. It integrates AI directly into the software loop, enabling self-analysis, self-rebuilds, and continuous evolution across its modules.

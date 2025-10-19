@@ -1,4 +1,0 @@
-<pad>
-<bos>
-<eos>
-<unk>
