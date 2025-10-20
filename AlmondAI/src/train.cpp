@@ -237,7 +237,7 @@ void ensure_seed_samples() {
         out << Json(sample).dump() << '\n';
     };
 
-    emit_sample("Reassess AlmondAI’s core design principles for ongoing adaptation.",
+    emit_sample("Reassess AlmondAI's core design principles for ongoing adaptation.",
         "AlmondAI sustains constant learning through modular feedback loops. "
         "Its design pillars are persistence, adaptability, traceable memory, and autonomous refinement.",
         "self::continuous_design_pillars");
@@ -248,7 +248,7 @@ void ensure_seed_samples() {
         "data/student_weights.json. This live persistence ensures uninterrupted evolution while preserving stability.",
         "self::continuous_persistence");
 
-    emit_sample("Explain AlmondAI’s continuous reinforcement process.",
+    emit_sample("Explain AlmondAI's continuous reinforcement process.",
         "Each confirmed prompt–response pair is validated, normalized, and added to the active dataset. "
         "The learner immediately integrates these samples into its adapters and retrieval indices, enabling "
         "constant gradient alignment with its latest operational behaviour.",
