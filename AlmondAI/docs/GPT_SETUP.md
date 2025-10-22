@@ -80,11 +80,13 @@ chat completions format.
 ## Seeding and persistence
 
 * `data/training_seed.jsonl` ships with three starter conversations. On first run the
-  learner copies them into `data/training_data.jsonl`, updates the vocabulary, and
-  ingests them into the retrieval index.
+  learner copies them into the newline-delimited `data/training_data.jsonl`, updates
+  the vocabulary, and ingests them into the retrieval index.
 * Each successful training step appends the curated sample to
   `data/training_data.jsonl`, logs metrics in `data/training_log.txt`, and writes the
   student weights to `data/student_weights.json`.
+* Refer to `docs/DATA_FORMATS.md` for schema details covering all persisted JSON and
+  JSONL assets.
 * Restarting the runtime reloads the vocabulary, training samples, and weights so the
   learner resumes where it left off.
 

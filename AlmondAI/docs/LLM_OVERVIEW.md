@@ -68,7 +68,7 @@ of JSON-RPC-style endpoints:
     auto-invoking the GPT teacher via `MCPBridge` when no `teacher_output` is supplied.
 - **`trainer.fit`**
   - Streams batches from `data/training_data.jsonl` for offline fine-tuning runs, emitting
-    progress over the same bridge.
+    progress over the same bridge. (See `docs/DATA_FORMATS.md` for JSONL schema details.)
 - **`eval.canary`**
   - Reports held-out evaluation metrics to confirm the student has not regressed.
 - **Utility calls** — `retrieval.query`, `compiler.build`, `admin.hot_swap`, `gpt.generate`
@@ -87,8 +87,8 @@ Each training cycle keeps the model fresh while maintaining safety guarantees:
 
 1. **Ingestion**
    - `ContinuousLearner::ingest` forwards prompts to `DataCurator`, refreshes the tokenizer
-     vocabulary, stores curated samples in training/eval buffers, updates the retrieval
-     index, and writes examples to `data/training_data.jsonl`.
+    vocabulary, stores curated samples in training/eval buffers, updates the retrieval
+    index, and writes examples to `data/training_data.jsonl` (newline-delimited JSON).
 2. **Training**
    - `train_step` tokenizes the prompt/teacher pair, runs a forward pass, forms a target
      distribution from the teacher tokens, applies cross-entropy against the student's

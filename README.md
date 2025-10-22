@@ -234,14 +234,21 @@ can improve safely over time:
 
 The learner keeps several artifacts in `data/`:
 
-- `training_seed.jsonl` – starter prompts auto-generated (if missing) and
-  copied into `training_data.jsonl` on first run so the learner always has an
-  onboarding curriculum
-- `training_data.jsonl` – curated samples ingested during operation
+- `training_seed.jsonl` – newline-delimited JSON seed prompts copied into
+  `training_data.jsonl` on first run so the learner always has an onboarding
+  curriculum
+- `training_data.jsonl` – newline-delimited JSON records appended as curated
+  samples during operation
 - `training_log.txt` – human-readable metrics per training/evaluation step
-- `student_weights.json` – serialized decoder weights
-- `vocab.txt` – tokenizer vocabulary
+- `student_weights.json` – serialized decoder weights stored as a single JSON
+  document
+- `retrieval_index.json` – JSON metadata snapshot for the retrieval index
+- `vocab.txt` – tokenizer vocabulary (one token per line)
 - `seed.txt` – description prompt used when seeding the teacher
+
+See [`AlmondAI/docs/DATA_FORMATS.md`](AlmondAI/docs/DATA_FORMATS.md) for full
+schemas and validation tips covering the JSON and JSONL artifacts managed by
+the runtime.
 
 These files are created automatically if they do not exist.
 

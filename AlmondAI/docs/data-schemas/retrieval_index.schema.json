@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://almondai.dev/schemas/retrieval_index.schema.json",
+  "title": "AlmondAI Retrieval Index Metadata",
+  "description": "Serialized representation of the RetrievalIndex persisted to data/retrieval_index.json.",
+  "type": "object",
+  "required": ["stats", "documents"],
+  "additionalProperties": false,
+  "properties": {
+    "stats": {
+      "type": "object",
+      "required": ["query_count", "hit_count"],
+      "additionalProperties": false,
+      "properties": {
+        "query_count": {
+          "type": ["number", "integer"],
+          "minimum": 0,
+          "description": "Total queries issued against the retrieval index."
+        },
+        "hit_count": {
+          "type": ["number", "integer"],
+          "minimum": 0,
+          "description": "Queries that returned at least one document."
+        }
+      }
+    },
+    "documents": {
+      "type": "array",
+      "description": "Collection of indexed documents keyed by sample hash or prompt hash.",
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier for the document derived from provenance hashes."
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Semantic tags associated with the document."
+          },
+          "tokens": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Cached token ids representing the document body."
+          }
+        }
+      }
+    }
+  }
+}

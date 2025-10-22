@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://almondai.dev/schemas/student_weights.schema.json",
+  "title": "AlmondAI Student Weights",
+  "description": "Serialized decoder weights persisted to data/student_weights.json.",
+  "type": "object",
+  "required": ["config", "weights"],
+  "additionalProperties": true,
+  "properties": {
+    "config": {
+      "type": "object",
+      "required": ["vocab_size", "hidden_size", "num_layers", "context_length", "learning_rate"],
+      "additionalProperties": true,
+      "properties": {
+        "vocab_size": {
+          "type": ["integer", "number"],
+          "minimum": 0,
+          "description": "Tokenizer vocabulary size expected by the decoder." 
+        },
+        "hidden_size": {
+          "type": ["integer", "number"],
+          "minimum": 1,
+          "description": "Model hidden dimension."
+        },
+        "num_layers": {
+          "type": ["integer", "number"],
+          "minimum": 1,
+          "description": "Number of transformer layers."
+        },
+        "context_length": {
+          "type": ["integer", "number"],
+          "minimum": 1,
+          "description": "Maximum context window supported by the model."
+        },
+        "learning_rate": {
+          "type": "number",
+          "description": "Last effective learning rate recorded when persisting weights."
+        }
+      }
+    },
+    "weights": {
+      "type": "array",
+      "description": "Flat list of tensors comprising the decoder weights.",
+      "items": {
+        "type": "object",
+        "required": ["shape", "data"],
+        "additionalProperties": true,
+        "properties": {
+          "shape": {
+            "type": "array",
+            "items": {
+              "type": ["integer", "number"],
+              "minimum": 1
+            },
+            "description": "Tensor shape expressed as a sequence of dimension sizes." 
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Flattened tensor values encoded as doubles."
+          }
+        }
+      }
+    }
+  }
+}
