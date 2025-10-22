@@ -30,7 +30,9 @@ compiler feedback loops to keep every replica improving between releases.
 
 - 🧪 **Injector Recipes** – `almondai::WordTokenizer`, dataset normalisers, and
   curriculum scripts package into reproducible recipes that new replicas can
-  replay before they spawn their own services.
+  replay before they spawn their own services. The tokenizer now streams
+  training corpora character-by-character, refreshing the vocabulary and
+  weights as soon as new symbols appear.
 - 🧠 **Adapter-Savvy Student Model** – `almondai::StudentModel` and
   `almondai::AdapterManager` co-manage decoder weights so replicators can test,
   promote, or retire behaviours without dropping the control plane.

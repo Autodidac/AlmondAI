@@ -14,7 +14,7 @@ artifacts and automate validations.
 | `data/training_log.txt` | Plain text | Human-readable metrics emitted by `ContinuousLearner::log_stats` |
 | `data/student_weights.json` | JSON document | Decoder weights saved by `BaseDecoder::save_weights`; see [`student_weights.schema.json`](data-schemas/student_weights.schema.json) |
 | `data/retrieval_index.json` | JSON document | Metadata exported by `RetrievalIndex::save_metadata`; see [`retrieval_index.schema.json`](data-schemas/retrieval_index.schema.json) |
-| `data/vocab.txt` | Plain text | One token per line in the order expected by `WordTokenizer` |
+| `data/vocab.txt` | Plain text | UTF-8 tokens serialised with `std::quoted` in the order expected by the streaming tokenizer |
 | `data/seed.txt` | Plain text | Free-form bootstrap prompt text consumed when regenerating seed samples |
 
 Any additional files created by local experiments should live outside of `data/` or
@@ -98,8 +98,15 @@ if you need to validate or generate compatible checkpoints.
 
 - `data/training_log.txt` is purely informational and never parsed back into the
   runtime.
-- `data/vocab.txt` is written by `WordTokenizer::save_vocab` with one token per line.
+- `data/vocab.txt` is written by the streaming `WordTokenizer`. Each line is a
+  `std::quoted` UTF-8 token, allowing whitespace, emoji, and other multi-byte
+  characters to survive round-trips without loss.
 - `data/seed.txt` stores the default greeting curriculum; edit it to customise the
   generated seed JSONL samples.
+
+The learner refreshes `data/vocab.txt` by calling
+`ContinuousLearner::consume_training_data_for_vocab`, which streams the JSONL
+training corpus, tokenises each prompt/response pair on the fly, deduplicates
+tokens, and resizes the student weights whenever the vocabulary grows.
 
 Keep these files UTF-8 encoded. The runtime ignores blank lines where appropriate.

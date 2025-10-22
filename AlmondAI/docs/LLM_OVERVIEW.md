@@ -34,15 +34,21 @@ quickly locate the code you need:
 
 ### Tokenization & Data Handling
 - **WordTokenizer** (`tokenizer_word.cpp`, `tokenizer_word.hpp`)
-  - Performs whitespace tokenization, grows the vocabulary, and persists it to
+  - Streams UTF-8 code points directly from training prompts and replies,
+    deduplicates tokens on the fly, and persists the quoted vocabulary to
     `data/vocab.txt`.
-  - Signals `StudentModel` when the projection matrix must be resized.
+  - Signals `StudentModel` when the projection matrix must be resized and saves
+    refreshed weights whenever the vocabulary grows.
 - **DataCurator** (`ingest.cpp`, `ingest.hpp`)
   - Filters prompts, deduplicates by `(prompt_hash, teacher_source, teacher_output)`, records
     preference pairs, and enforces guardrails before training data is accepted.
 - **RetrievalIndex** (`retrieval.cpp`, `retrieval.hpp`)
   - Stores curated samples for retrieval-augmented generation.
   - Returns scored hits and tracks a hit rate that feeds into training telemetry.
+- **ContinuousLearner::consume_training_data_for_vocab** (`train.cpp`)
+  - Scans `data/training_data.jsonl` during startup to rebuild the tokenizer
+    vocabulary, deduplicating tokens and resizing student weights before
+    loading samples into memory.
 
 ### Evaluation & Governance
 - **Evaluator** (`eval.cpp`, `eval.hpp`)
@@ -86,9 +92,10 @@ remote teacher can answer, `fallback.cpp` provides deterministic canned replies.
 Each training cycle keeps the model fresh while maintaining safety guarantees:
 
 1. **Ingestion**
-   - `ContinuousLearner::ingest` forwards prompts to `DataCurator`, refreshes the tokenizer
-    vocabulary, stores curated samples in training/eval buffers, updates the retrieval
-    index, and writes examples to `data/training_data.jsonl` (newline-delimited JSON).
+   - `ContinuousLearner::ingest` forwards prompts to `DataCurator`, refreshes the streaming
+    tokenizer vocabulary via `ingest_training_pair`, stores curated samples in training/eval
+    buffers, updates the retrieval index, and writes examples to `data/training_data.jsonl`
+    (newline-delimited JSON).
 2. **Training**
    - `train_step` tokenizes the prompt/teacher pair, runs a forward pass, forms a target
      distribution from the teacher tokens, applies cross-entropy against the student's
