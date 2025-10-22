@@ -39,6 +39,7 @@
 #include <optional>
 #include <sstream>
 #include <stdexcept>
+#include <system_error>
 #include <string>
 #include <type_traits>
 #include <variant>
@@ -986,6 +987,7 @@ int main() {
   help                    Show this message.
   generate <prompt>       Generate a completion and report the route/backend used.
   retrieve <query>        Search the retrieval index for relevant samples.
+  directory [training]    Show absolute paths for the data/training files.
   train <file> [epochs=1] [batch=32]
                           Run batched training against a JSONL file.
   self-learn [loops=1] [delay_ms=0] [options]
@@ -1352,6 +1354,47 @@ int main() {
                         }
                     }
                 }
+                continue;
+            }
+
+            if (lowered_command == "directory" || lowered_command == "dir") {
+                std::string scope;
+                iss >> scope;
+                std::string lowered_scope = to_lower(scope);
+                if (!scope.empty() && lowered_scope != "training") {
+                    std::cout << "Unknown directory scope. Try 'directory' or 'directory training'.\n";
+                    continue;
+                }
+
+                auto resolve_path = [](const std::filesystem::path& candidate) {
+                    std::error_code ec;
+                    std::filesystem::path resolved = std::filesystem::weakly_canonical(candidate, ec);
+                    if (ec) {
+                        resolved = std::filesystem::absolute(candidate, ec);
+                        if (ec) {
+                            return candidate;
+                        }
+                    }
+                    return resolved;
+                };
+
+                auto print_entry = [&](const std::string& label, const std::filesystem::path& relative) {
+                    const std::filesystem::path resolved = resolve_path(relative);
+                    std::error_code exists_ec;
+                    const bool exists = std::filesystem::exists(relative, exists_ec);
+                    std::cout << "  " << label << ": " << resolved.string();
+                    if (!exists) {
+                        std::cout << " (missing)";
+                    }
+                    std::cout << '\n';
+                };
+
+                const std::filesystem::path data_dir{"data"};
+                std::cout << "Training files are stored here:\n";
+                print_entry("data", data_dir);
+                print_entry("training_data.jsonl", data_dir / "training_data.jsonl");
+                print_entry("training_seed.jsonl", data_dir / "training_seed.jsonl");
+                print_entry("training_log.txt", data_dir / "training_log.txt");
                 continue;
             }
 
