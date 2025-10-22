@@ -272,6 +272,12 @@ before launching the runtime:
 - `ALMONDAI_MODEL` – remote model identifier
 - `ALMONDAI_API_KEY` – credential used by the chat backend
 
+The interactive console reuses the same variables when you invoke
+`chat use <kind>`. Leave any of the optional `endpoint`, `model`, or `key`
+arguments blank and AlmondAI will pull their values from the corresponding
+environment variable, so a preconfigured shell can switch providers with a
+concise `chat use openrouter` or `chat use togetherai`.
+
 `lmstudio` is now accepted as an `ALMONDAI_CHAT_KIND` alias. When selected (or
 when issuing `chat use lmstudio` inside the console) AlmondAI defaults the
 endpoint to `http://127.0.0.1:1234/v1/chat/completions` and the model name to

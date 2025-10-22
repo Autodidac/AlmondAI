@@ -37,7 +37,7 @@ Keep it handy when you are learning the runtime or showing it to someone new.
 
 | Command | Purpose | Example |
 | --- | --- | --- |
-| `chat use <kind> [endpoint] [model] [key]` | Switches to a remote teacher. The `lmstudio` kind fills in its own endpoint/model defaults. | `chat use lmstudio` |
+| `chat use <kind> [endpoint] [model] [key]` | Switches to a remote teacher. Missing endpoint/model/key arguments fall back to `ALMONDAI_*` environment variables and the `lmstudio` kind fills in its own defaults. | `chat use lmstudio` |
 | `chat clear` | Returns to the local student after testing a remote backend. | `chat clear` |
 
 ## Quick recipes

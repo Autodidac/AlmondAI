@@ -1588,7 +1588,7 @@ int main() {
                             model = "lmstudio";
                         }
                         else {
-                            model = getenv_string("ALMONDAI_MODEL");
+                            model = trim_copy(read_env_string("ALMONDAI_MODEL"));
                             if (model.empty()) {
                                 std::cout << "Model required for chat backend.\n";
                                 continue;
@@ -1597,7 +1597,7 @@ int main() {
                     }
 
                     if (api_key.empty()) {
-                        api_key = getenv_string("ALMONDAI_API_KEY");
+                        api_key = trim_copy(read_env_string("ALMONDAI_API_KEY"));
                     }
 
                     try {
