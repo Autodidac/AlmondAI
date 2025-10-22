@@ -203,6 +203,24 @@ local while still exercising the continuous learner:
   notes plus an HTML harness you can open in a browser to sanity-check LM Studio
   connectivity before using the console.
 
+### Fast LM Studio bootstrap
+
+When you want the local student to absorb LM Studio answers as quickly as
+possible, opt into the compact curriculum and higher learning rates:
+
+- `ALMONDAI_SEED_PROFILE=compact` swaps the verbose seed set for a concise
+  English primer covering greetings, clarifying questions, Markdown context
+  formatting, and friendly farewells so the model trains on immediately useful
+  phrasing.
+- `ALMONDAI_FAST_LEARNING=1` bumps the decoder learning rate to `5e-3` unless
+  you provide a custom rate.
+- `ALMONDAI_LEARNING_RATE=<value>` pins an explicit rate (e.g. `0.01`) and takes
+  precedence over the fast-learning toggle—ideal when you're tuning against a
+  specific LM Studio model.
+
+The console prints which overrides are active at launch, letting you confirm the
+student is in "fast follow" mode before you start streaming prompts.
+
 ## Self-Learning Workflow
 
 Behind the scenes the runtime keeps a persistent loop alive so the student model

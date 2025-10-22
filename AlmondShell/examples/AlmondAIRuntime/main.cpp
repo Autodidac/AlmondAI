@@ -31,6 +31,7 @@
 #include <array>
 #include <cctype>
 #include <charconv>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <functional>
@@ -110,6 +111,54 @@ int main() {
     config.vocab_size = tokenizer.vocab().size();
     config.hidden_size = 64;
     config.num_layers = 2;
+
+    auto trim_copy = [](std::string value) {
+        auto not_space = [](unsigned char ch) { return !std::isspace(ch); };
+        value.erase(value.begin(), std::find_if(value.begin(), value.end(), not_space));
+        value.erase(std::find_if(value.rbegin(), value.rend(), not_space).base(), value.end());
+        return value;
+    };
+    auto lowercase_copy = [](std::string value) {
+        std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        return value;
+    };
+
+    const char* fast_env_raw = std::getenv("ALMONDAI_FAST_LEARNING");
+    const char* rate_env_raw = std::getenv("ALMONDAI_LEARNING_RATE");
+    const std::string fast_env = fast_env_raw ? trim_copy(fast_env_raw) : std::string();
+    const std::string rate_env = rate_env_raw ? trim_copy(rate_env_raw) : std::string();
+
+    auto bool_from_env = [&](const std::string& value) {
+        const std::string lowered = lowercase_copy(value);
+        return lowered == "1" || lowered == "true" || lowered == "yes" || lowered == "on";
+    };
+
+    const bool fast_learning = !fast_env.empty() && bool_from_env(fast_env);
+    if (!rate_env.empty()) {
+        char* end = nullptr;
+        const double parsed = std::strtod(rate_env.c_str(), &end);
+        if (end != rate_env.c_str() && std::isfinite(parsed) && parsed > 0.0) {
+            config.learning_rate = parsed;
+            std::ostringstream msg;
+            msg << std::fixed << std::setprecision(6) << parsed;
+            std::cout << "Learning rate set to " << msg.str()
+                      << " via ALMONDAI_LEARNING_RATE.\n";
+        }
+        else {
+            std::cout << "Ignoring invalid ALMONDAI_LEARNING_RATE value: '"
+                      << rate_env << "'.\n";
+        }
+    }
+    else if (fast_learning) {
+        const double fast_rate = std::max(config.learning_rate, 5e-3);
+        config.learning_rate = fast_rate;
+        std::ostringstream msg;
+        msg << std::fixed << std::setprecision(6) << fast_rate;
+        std::cout << "ALMONDAI_FAST_LEARNING enabled (learning rate "
+                  << msg.str() << ").\n";
+    }
 
     BaseDecoder base(config);
     StudentModel student(std::move(base));
