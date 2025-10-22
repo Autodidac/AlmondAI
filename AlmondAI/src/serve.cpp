@@ -1321,6 +1321,19 @@ void Service::handle_trainer_fit(const MCPBridge::Request& request, std::ostream
     int epochs = 1;
     int batch = 32;
 
+    auto emit_info = [&out](std::string message, std::function<void(JsonObject&)> enrich = {}) {
+        JsonObject event;
+        event["event"] = Json("info");
+        if (!message.empty()) {
+            event["message"] = Json(std::move(message));
+        }
+        if (enrich) {
+            enrich(event);
+        }
+        out << Json(event).dump() << '\n';
+        out.flush();
+    };
+
     auto parse_int = [](const Json& value, int fallback) {
         return std::visit([
                                fallback
@@ -1358,6 +1371,49 @@ void Service::handle_trainer_fit(const MCPBridge::Request& request, std::ostream
             batch = std::max(1, parse_int(it->second, batch));
         }
     }
+
+    if (!file.empty()) {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        const fs::path dataset_path = fs::path(file);
+        const bool exists = fs::exists(dataset_path, ec);
+        fs::path resolved = exists ? fs::weakly_canonical(dataset_path, ec) : dataset_path;
+        if (resolved.empty()) {
+            resolved = dataset_path;
+        }
+        if (exists) {
+            emit_info(
+                "Loading training data from '" + resolved.string() + "'",
+                [&](JsonObject& payload) {
+                    payload["file"] = Json(file);
+                    payload["resolved_path"] = Json(resolved.string());
+                    ec.clear();
+                    const std::uintmax_t size = fs::file_size(dataset_path, ec);
+                    if (!ec) {
+                        payload["bytes"] = Json(static_cast<double>(size));
+                    }
+                });
+        }
+        else {
+            emit_info(
+                "Training file '" + file + "' not found. Continuing with cached samples.",
+                [&](JsonObject& payload) {
+                    payload["file"] = Json(file);
+                    payload["missing"] = Json(true);
+                });
+        }
+    }
+    else {
+        emit_info("Training using cached in-memory dataset.");
+    }
+
+    emit_info(
+        "Training configuration: epochs=" + std::to_string(epochs)
+            + ", batch=" + std::to_string(batch) + '.',
+        [&](JsonObject& payload) {
+            payload["epochs"] = Json(epochs);
+            payload["batch"] = Json(batch);
+        });
 
     double final_loss = 0.0;
     int final_step = 0;
