@@ -125,9 +125,11 @@ Json Json::parse_string(std::string_view text, std::size_t& pos) {
     }
     ++pos;
     std::string result;
+    bool closed = false;
     while (pos < text.size()) {
         char c = text[pos++];
         if (c == '"') {
+            closed = true;
             break;
         }
         if (c == '\\') {
@@ -184,6 +186,9 @@ Json Json::parse_string(std::string_view text, std::size_t& pos) {
         } else {
             result.push_back(c);
         }
+    }
+    if (!closed) {
+        throw std::runtime_error("unterminated string");
     }
     return Json(result);
 }
