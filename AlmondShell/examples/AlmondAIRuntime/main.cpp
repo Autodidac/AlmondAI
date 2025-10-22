@@ -1096,10 +1096,10 @@ int main() {
         }
         if (remote_route_used) {
             if (!backend_label_for_training.empty()) {
-                route_display += " · backend=" + backend_label_for_training;
+                route_display += " (backend=" + backend_label_for_training + ")";
             }
             else if (!chat_route_label.empty()) {
-                route_display += " · backend=" + chat_route_label;
+                route_display += " (backend=" + chat_route_label + ")";
             }
         }
 
