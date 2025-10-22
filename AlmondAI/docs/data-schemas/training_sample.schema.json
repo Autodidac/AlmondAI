@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://almondai.dev/schemas/training_sample.schema.json",
+  "title": "AlmondAI Training Sample",
+  "description": "Schema for each JSON object stored per line inside data/training_data.jsonl and data/training_seed.jsonl.",
+  "type": "object",
+  "required": ["prompt", "teacher_output"],
+  "additionalProperties": true,
+  "properties": {
+    "prompt": {
+      "type": "string",
+      "description": "User-facing prompt or instruction captured for training." 
+    },
+    "teacher_output": {
+      "type": "string",
+      "description": "Reference answer supplied by the teacher or curator." 
+    },
+    "constraints": {
+      "type": ["object", "array", "string", "number", "boolean", "null"],
+      "description": "Optional structured metadata describing safety, formatting, or scoring requirements.",
+      "default": {}
+    },
+    "provenance": {
+      "type": "object",
+      "description": "Source metadata captured by the curator (e.g., hashes, backend identifiers, timestamps).",
+      "default": {}
+    },
+    "semantic_tags": {
+      "type": "array",
+      "description": "Normalized tags used by the retrieval index to group related samples.",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": false
+    }
+  }
+}
