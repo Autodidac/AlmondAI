@@ -97,57 +97,44 @@ project hosts the interactive console located at
 Launch the resulting binary from the repository root so it can access the
 `data/` directory.
 
-### Console commands
+### Console help at a glance
 
-Inside the runtime console you can type `help` at any time to surface the
-interactive command list. The commands below are available in every session,
-along with short usage notes and examples to clarify how they interact with the
-continuous learner:
+Type `help` inside the console at any time to open the built-in cheat sheet.
+For a printable version—including command summaries, quick recipes, and
+troubleshooting tips—see [`docs/CONSOLE_HELP.md`](AlmondAI/docs/CONSOLE_HELP.md).
 
-- **`help`** – redisplays the built-in cheat sheet. Handy when exploring the
-  console for the first time or when switching between machines.
-- **`generate <prompt>`** – produces a reply using the currently active route
-  (local student or remote teacher). The console echoes the route and backend so
-  you can confirm where the response came from. Example:
-  ```text
-  generate Summarize the last training run.
-  ```
-- **`retrieve <query>`** – inspects the retrieval index for matching samples.
-  This is useful for debugging or verifying that curated data landed in the
-  store. Example:
-  ```text
-  retrieve adversarial prompt mitigation
-  ```
-- **`train <file> [epochs=1] [batch=32]`** – performs supervised updates on a
-  JSONL dataset. The runtime reports per-epoch metrics to the console and
-  appends them to `data/training_log.txt`. Example:
-  ```text
-  train data/tutorial.jsonl 3 16
-  ```
-- **`hot-swap [name]`** – promotes a named adapter into the student model
-  without restarting the process. If a `name` is supplied the learner loads and
-  activates that adapter; if it is omitted the command rolls back to the default
-  adapter stack. This is an easy way to A/B test new weights in a live service:
-  ```text
-  hot-swap nightly_adapter
-  hot-swap                # roll back to the previously active adapter
-  ```
-- **`chat use <kind> [endpoint] [model] [key]`** – switches the teacher backend
-  while the console is running. The `lmstudio` kind auto-fills
-  `http://127.0.0.1:1234/v1/chat/completions` and `lmstudio` for the endpoint
-  and model. Other kinds (for example `openrouter`, `togetherai`, or
-  `openai`) fall back to the `ALMONDAI_*` environment variables when arguments
-  are omitted. When LM Studio is active, remote responses are automatically fed
-  back into the student for continual learning.
-- **`chat clear`** – returns to the local student model without tearing down the
-  console.
-- **`exit` / `quit`** – cleanly stops the runtime.
+#### Everyday navigation
 
-`generate`, `train`, and `hot-swap` all stream progress messages as they run so
-you can watch the learner state evolve. After each remote response routed
-through `chat use`, the runtime records whether the teacher was involved,
-validates it against the `PolicyGovernor`, and, when allowed, trains the student
-on the new transcript while reporting loss/accuracy inline.
+| Command | What it does | Try it |
+| --- | --- | --- |
+| `help` | Reprints the concise command overview. Helpful when you are new to the console or returning after a break. | `help` |
+| `exit`, `quit` | Closes the runtime cleanly. | `quit` |
+
+#### Get answers and inspect memory
+
+| Command | What it does | Try it |
+| --- | --- | --- |
+| `generate <prompt>` | Sends a prompt through the active route (local student or remote teacher) and shows which backend replied. | `generate Summarize the last training run.` |
+| `retrieve <query>` | Searches the retrieval index so you can confirm that curated samples or seed data are available. | `retrieve greeting curriculum` |
+
+#### Train or swap adapters
+
+| Command | What it does | Try it |
+| --- | --- | --- |
+| `train <file> [epochs=1] [batch=32]` | Runs supervised updates on a JSONL dataset, streaming metrics to the console and appending them to `data/training_log.txt`. | `train data/tutorial.jsonl 3 16` |
+| `hot-swap [name]` | Loads the named adapter without restarting. Run with no arguments to roll back to the default stack. | `hot-swap nightly_adapter` |
+
+#### Manage chat backends
+
+| Command | What it does | Try it |
+| --- | --- | --- |
+| `chat use <kind> [endpoint] [model] [key]` | Switches the teacher backend while the console is running. `lmstudio` auto-fills sensible defaults. | `chat use lmstudio` |
+| `chat clear` | Returns to the local student after testing a remote teacher. | `chat clear` |
+
+`generate`, `train`, and `hot-swap` stream progress messages so you can watch the
+learner state change in real time. When a remote response arrives via `chat use`
+the runtime tags the transcript with the teacher name, validates it against the
+`PolicyGovernor`, and (when approved) trains the student immediately.
 
 ### Bootstrapped greeting curriculum
 

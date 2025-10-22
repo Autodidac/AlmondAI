@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.61.1]
+- Rewrote the README console help section with tables and plain-language
+  summaries, and added a dedicated `CONSOLE_HELP.md` reference for newcomers.
+- Linked the new help guide from GPT and teacher backend docs so related setup
+  pages point to the same quick command refresher.
+
 ## [v0.59.10]
 - Added `agui.hpp` as the shared immediate-mode GUI layer, generating a built-in font atlas and wiring Raylib + SDL3 draw paths so every backend can render consistent windows, labels, and buttons without bespoke setup.
 
