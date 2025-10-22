@@ -102,6 +102,8 @@ Launch the resulting binary from the repository root so it can access the
 Type `help` inside the console at any time to open the built-in cheat sheet.
 For a printable version—including command summaries, quick recipes, and
 troubleshooting tips—see [`docs/CONSOLE_HELP.md`](AlmondAI/docs/CONSOLE_HELP.md).
+Need a precise breakdown of arguments, behaviours, and side effects? Check the
+command index in [`docs/CONSOLE_COMMANDS.md`](AlmondAI/docs/CONSOLE_COMMANDS.md).
 
 #### Everyday navigation
 
