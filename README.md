@@ -121,6 +121,7 @@ troubleshooting tips—see [`docs/CONSOLE_HELP.md`](AlmondAI/docs/CONSOLE_HELP.m
 
 | Command | What it does | Try it |
 | --- | --- | --- |
+| `directory [training]` | Prints the absolute paths for the training dataset and logs under `data/` so you can open them in an editor. | `directory` |
 | `train <file> [epochs=1] [batch=32]` | Runs supervised updates on a JSONL dataset, streaming metrics to the console and appending them to `data/training_log.txt`. | `train data/tutorial.jsonl 3 16` |
 | `hot-swap [name]` | Loads the named adapter without restarting. Run with no arguments to roll back to the default stack. | `hot-swap nightly_adapter` |
 

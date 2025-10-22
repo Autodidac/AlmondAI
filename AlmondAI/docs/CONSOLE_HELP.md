@@ -29,6 +29,7 @@ Keep it handy when you are learning the runtime or showing it to someone new.
 
 | Command | Purpose | Example |
 | --- | --- | --- |
+| `directory [training]` | Prints absolute paths for the training dataset and log files under `data/`. | `directory` |
 | `train <file> [epochs=1] [batch=32]` | Fine-tunes the student on a JSONL dataset and streams loss/accuracy to the console. | `train data/tutorial.jsonl 2 32` |
 | `hot-swap [name]` | Activates a saved adapter without restarting. Run with no name to fall back to the default adapter stack. | `hot-swap nightly_adapter` |
 
