@@ -60,7 +60,7 @@ Not much  <eos>
 
 Bonjour (French)  <eos>
 Konnichiwa (Japanese)  <eos>
-As-salamu alaykum (Arabic) → Wa alaykum as-salam  <eos>
+As-salamu alaykum (Arabic) -> Wa alaykum as-salam  <eos>
 Hola (Spanish)  <eos>
 Sawasdee (Thai)  <eos>
 
@@ -119,6 +119,7 @@ struct SeedSpec {
     const char* prompt;
     const char* teacher_output;
     const char* prompt_hash;
+    const char* teacher_hash;
 };
 
 std::optional<std::string> read_env(std::string_view name) {
@@ -167,32 +168,58 @@ std::string default_seed_text_for_profile(const std::string& profile) {
 }
 
 std::vector<SeedSpec> seed_file_curriculum_for_profile(const std::string& profile) {
-    if (profile == "compact") {
-        return {
-            {"Greet the user in natural English and describe AlmondAI in one short sentence.",
-             "Hello! I'm AlmondAI, your local assistant. I'm ready to listen and help with whatever you need.",
-             "seed::compact::intro"},
-            {"Ask the user for a clarifying detail while keeping the tone friendly.",
-             "Absolutely! Could you share a little more detail so I can deliver the exact help you're looking for?",
-             "seed::compact::clarify"},
-            {"Demonstrate how AlmondAI quotes a user message labelled 'Context: status report'.",
-             "Context > status report\nAssistant > Everything looks healthy on my side. Let me know if you see something I should double-check.",
-             "seed::compact::context_quote"},
-            {"Close a helpful exchange and invite the user to continue the conversation.",
-             "Thanks for checking in! If anything else pops up, just ask and we'll tackle it together.",
-             "seed::compact::closing"}
-        };
-    }
+    (void)profile;
     return {
-        {"Reassess AlmondAI's core design principles for ongoing adaptation.",
-         "AlmondAI sustains constant learning through modular feedback loops. Its design pillars are persistence, adaptability, traceable memory, and autonomous refinement.",
-         "self::continuous_design_pillars"},
-        {"Describe how AlmondAI maintains learning momentum without interruption.",
-         "AlmondAI continuously appends validated examples to data/training_data.jsonl, updates metrics in data/training_log.txt, expands its vocabulary in data/vocab.txt, and periodically adjusts weights in data/student_weights.json. This live persistence ensures uninterrupted evolution while preserving stability.",
-         "self::continuous_persistence"},
-        {"Explain AlmondAI's continuous reinforcement process.",
-         "Each confirmed prompt–response pair is validated, normalized, and added to the active dataset. The learner immediately integrates these samples into its adapters and retrieval indices, enabling constant gradient alignment with its latest operational behaviour.",
-         "self::reinforcement_cycle"}
+        {"Greet politely in one line.", "Hello. Nice to meet you.", "seed::eng_greet_1", "1001"},
+        {"Reply to: Hello", "Hi there.", "seed::eng_reply_hello", "1002"},
+        {"Ask how someone is, short.", "How are you?", "seed::eng_ask_how", "1003"},
+        {"Answer: How are you?", "I'm well, thanks. How about you?", "seed::eng_answer_how", "1004"},
+        {"Morning greeting.", "Good morning.", "seed::eng_morning", "1005"},
+        {"Make a polite request: open the door.", "Please open the door.", "seed::eng_request_open", "1006"},
+        {"Fix grammar: 'She don't like it.'", "She doesn't like it.", "seed::eng_grammar_1", "1007"},
+        {"Fix grammar: 'They was late.'", "They were late.", "seed::eng_grammar_2", "1008"},
+        {"Choose the correct article: '___ apple'.", "an apple", "seed::eng_article_apple", "1009"},
+        {"Explain when to use 'a' vs 'an' in one line.", "'A' before consonant sounds; 'an' before vowel sounds.", "seed::eng_article_rule", "1010"},
+        {"Pluralize: 'mouse'.", "mice", "seed::eng_plural_mouse", "1011"},
+        {"Past tense: 'go'.", "went", "seed::eng_past_go", "1012"},
+        {"Paraphrase: 'The system failed to load.'", "The system did not load successfully.", "seed::eng_paraphrase_1", "1013"},
+        {"Turn passive to active: 'The file was saved by the user.'", "The user saved the file.", "seed::eng_active_1", "1014"},
+        {"Define a noun in one line.", "A noun names a person, place, thing, or idea.", "seed::eng_define_noun", "1015"},
+        {"Define a verb in one line.", "A verb expresses an action or a state of being.", "seed::eng_define_verb", "1016"},
+        {"Explain a comma in one line.", "A comma separates parts of a sentence to clarify meaning.", "seed::eng_punct_comma", "1017"},
+        {"Explain a period in one line.", "A period ends a sentence.", "seed::eng_punct_period", "1018"},
+        {"Write a short two-sentence self-intro.", "I'm a software assistant. I try to be clear and concise.", "seed::eng_self_intro", "1019"},
+        {"Short encouragement.", "Keep going; you've got this.", "seed::eng_encourage", "1020"},
+        {"C++: Print \"Hello, world!\" using iostream.", "#include <iostream>\nint main(){ std::cout << \"Hello, world!\\n\"; }", "seed::cpp_hello", "2001"},
+        {"C++: Explain const correctness in one line.", "Const correctness prevents unintended mutation by marking data and member functions as read-only where possible.", "seed::cpp_const", "2002"},
+        {"C++: Prefer pass-by-const-reference over pass-by-value for large objects - why?", "It avoids copies and preserves immutability for efficiency and safety.", "seed::cpp_constref", "2003"},
+        {"C++: Show a function taking const std::string& and returning size_t.", "#include <string>\nsize_t length_of(const std::string& s){ return s.size(); }", "seed::cpp_func_sig", "2004"},
+        {"C++: What is RAII in one sentence?", "RAII binds resource lifetime to object lifetime so acquisition and release happen in constructors and destructors.", "seed::cpp_raii", "2005"},
+        {"C++: Show RAII with std::unique_ptr for an int.", "#include <memory>\nstd::unique_ptr<int> p = std::make_unique<int>(42);", "seed::cpp_unique_ptr_basic", "2006"},
+        {"C++: unique_ptr vs shared_ptr in one line.", "unique_ptr has sole ownership; shared_ptr uses reference counting for shared ownership.", "seed::cpp_unique_vs_shared", "2007"},
+        {"C++: Demonstrate move semantics with std::string.", "#include <string>\nstd::string a = \"data\"; std::string b = std::move(a);", "seed::cpp_move", "2008"},
+        {"C++: Explain the Rule of Five in one line.", "If a type manages resources, define or delete copy/move ctor, copy/move assign, and destructor.", "seed::cpp_rule_of_five", "2009"},
+        {"C++: Give a noexcept move constructor example signature.", "MyType(MyType&&) noexcept = default;", "seed::cpp_noexcept_move", "2010"},
+        {"C++: Show range-based for over std::vector<int>.", "#include <vector>\nstd::vector<int> v{1,2,3}; for(int x : v){ /*...*/ }", "seed::cpp_range_for", "2011"},
+        {"C++: Explain enum class vs enum in one line.", "enum class is scoped and doesn't implicitly convert to int; old enum is unscoped and implicitly convertible.", "seed::cpp_enum_class", "2012"},
+        {"C++: Provide a constexpr function squaring an int.", "constexpr int sq(int x){ return x*x; }", "seed::cpp_constexpr_square", "2013"},
+        {"C++: Capture by reference in a lambda summing a vector.", "#include <vector>\nint sum=0; std::vector<int> v{1,2,3}; auto f=[&]{ for(int x:v) sum+=x; }; f();", "seed::cpp_lambda_capture_ref", "2014"},
+        {"C++: Why reserve() on std::vector improves performance?", "It preallocates capacity to reduce reallocations and copies during growth.", "seed::cpp_vector_reserve", "2015"},
+        {"C++: Show std::optional<int> usage returning maybe a value.", "#include <optional>\nstd::optional<int> find(bool ok){ return ok? std::optional<int>{42} : std::nullopt; }", "seed::cpp_optional", "2016"},
+        {"C++: Explain std::move in one line.", "std::move casts to an rvalue to enable moving; it does not move by itself.", "seed::cpp_std_move", "2017"},
+        {"C++: Give a trivial header-only assert-like macro guarded by NDEBUG.", "#ifndef NDEBUG\n#define A_ASSERT(x) do{ if(!(x)) std::abort(); }while(0)\n#else\n#define A_ASSERT(x) do{}while(0)\n#endif", "seed::cpp_assert_macro", "2018"},
+        {"C++: Thread-safe atomic increment with memory_order_relaxed.", "#include <atomic>\nstd::atomic<int> c{0}; c.fetch_add(1, std::memory_order_relaxed);", "seed::cpp_atomic_relaxed", "2019"},
+        {"C++: Explain memory_order_relaxed in one line.", "It enforces atomicity but provides no ordering guarantees beyond that.", "seed::cpp_relaxed_line", "2020"},
+        {"C++: Show a simple exception-safe file reader using ifstream.", "#include <fstream>\nstd::string read(const char* p){ std::ifstream f(p); return {std::istreambuf_iterator<char>(f), {}}; }", "seed::cpp_ifstream", "2021"},
+        {"C++: Summarize exceptions vs error-codes in one line.", "Exceptions separate error flow from normal flow; error codes keep it explicit but verbose.", "seed::cpp_exc_vs_codes", "2022"},
+        {"C++: Show a minimal header guard pattern.", "#pragma once", "seed::cpp_header_guard", "2023"},
+        {"C++: One-line description of RAII for file handles.", "Wrap the handle in an object so the destructor reliably closes it.", "seed::cpp_raii_file", "2024"},
+        {"Explain in one line: what is a sentence?", "A sentence is a complete thought that starts with a capital letter and ends with terminal punctuation.", "seed::eng_sentence_def", "1030"},
+        {"Form a conditional in one sentence.", "If it rains, we will stay inside.", "seed::eng_conditional", "1031"},
+        {"Give an example of a list with commas.", "We bought apples, oranges, and grapes.", "seed::eng_list_commas", "1032"},
+        {"Correct capitalization: 'monday in april'.", "Monday in April", "seed::eng_caps", "1033"},
+        {"Translate to plain English: 'utilize'.", "use", "seed::eng_plain_utilize", "1034"},
+        {"Close a conversation politely.", "Thanks for your time. Goodbye.", "seed::eng_close", "1035"}
     };
 }
 
@@ -201,91 +228,91 @@ std::vector<SeedSpec> bootstrap_curriculum_for_profile(const std::string& profil
         return {
             {"Offer a warm greeting to someone joining the conversation.",
              "Hello! It's great to hear from you. How can I support you today?",
-             "seed::compact::greeting"},
+             "seed::compact::greeting", nullptr},
             {"Respond to a user who asks for help debugging some code.",
              "I'd be happy to help debug the code. Tell me what language you're using, share the error message, and we can step through it together.",
-             "seed::compact::debug"},
+             "seed::compact::debug", nullptr},
             {"Respond to a user who wants a summary of an article.",
-             "Sure thing! Drop in the key points—or the article itself—and I'll return a concise English summary with any crucial details highlighted.",
-             "seed::compact::summary"},
+             "Sure thing! Drop in the key points - or the article itself - and I'll return a concise English summary with any crucial details highlighted.",
+             "seed::compact::summary", nullptr},
             {"Respond to a user who says 'Thank you!'.",
              "You're very welcome! If you need anything else, just let me know and we'll pick it up right away.",
-             "seed::compact::thanks"},
+             "seed::compact::thanks", nullptr},
             {"Respond to a user who says 'Goodbye'.",
-             "Goodbye! It was great working with you—ping me anytime you want to continue.",
-             "seed::compact::goodbye"},
+             "Goodbye! It was great working with you - ping me anytime you want to continue.",
+             "seed::compact::goodbye", nullptr},
             {"Show how AlmondAI formats a quick checklist in Markdown.",
              "Here you go!\n- [x] Acknowledge the request\n- [ ] Gather important context\n- [ ] Present a concise answer\n- [ ] Offer follow-up help",
-             "seed::compact::checklist"}
+             "seed::compact::checklist", nullptr}
         };
     }
     return {
         {"Offer a warm greeting to someone joining the conversation.",
          "Hello! It's great to hear from you. How can I support you today?",
-         "seed::greeting::hello"},
+         "seed::greeting::hello", nullptr},
         {"Respond to a user who says 'Hello there'.",
-         "Hello there! It's a pleasure to connect—what would you like to dive into today?",
-         "seed::greeting::hello_there"},
+         "Hello there! It's a pleasure to connect - what would you like to dive into today?",
+         "seed::greeting::hello_there", nullptr},
         {"Respond to a user who asks 'How are you?'.",
          "I'm doing great, thanks for asking! How can I help you today?",
-         "seed::greeting::how_are_you"},
+         "seed::greeting::how_are_you", nullptr},
         {"Respond to a user who says 'Good morning'.",
          "Good morning! I hope your day is off to a bright and productive start.",
-         "seed::greeting::good_morning"},
+         "seed::greeting::good_morning", nullptr},
         {"Respond to a user who says 'Good afternoon'.",
-         "Good afternoon! I hope everything's going smoothly—let me know what you'd like to tackle next.",
-         "seed::greeting::good_afternoon"},
+         "Good afternoon! I hope everything's going smoothly - let me know what you'd like to tackle next.",
+         "seed::greeting::good_afternoon", nullptr},
         {"Respond to a user who says 'Good evening'.",
-         "Good evening! I hope the rest of your day treats you well—what should we look at next?",
-         "seed::greeting::good_evening"},
+         "Good evening! I hope the rest of your day treats you well - what should we look at next?",
+         "seed::greeting::good_evening", nullptr},
         {"Respond to a user who says 'Good night'.",
          "Good night! Rest well, and ping me again whenever you're ready to continue.",
-         "seed::greeting::good_night"},
+         "seed::greeting::good_night", nullptr},
         {"Respond to a user who says 'Hi'.",
          "Hi there! How can I assist you today?",
-         "seed::greeting::hi"},
+         "seed::greeting::hi", nullptr},
         {"Respond to a user who says 'Hiya'.",
-         "Hiya! I'm ready when you are—what's on your mind?",
-         "seed::greeting::hiya"},
+         "Hiya! I'm ready when you are - what's on your mind?",
+         "seed::greeting::hiya", nullptr},
         {"Respond to a user who says 'Hey'.",
          "Hey! Glad you're here. What can I do for you?",
-         "seed::greeting::hey"},
+         "seed::greeting::hey", nullptr},
         {"Respond to a user who says 'Yo'.",
-         "Yo! Always happy to help—what are we working on today?",
-         "seed::greeting::yo"},
+         "Yo! Always happy to help - what are we working on today?",
+         "seed::greeting::yo", nullptr},
         {"Respond to a user who asks 'How's it going?'.",
-         "It's going great—thanks for checking in! What should we dive into next?",
-         "seed::greeting::hows_it_going"},
+         "It's going great - thanks for checking in! What should we dive into next?",
+         "seed::greeting::hows_it_going", nullptr},
         {"Respond to a user who says 'What's up?'.",
-         "Not much—I'm right here and ready to help. What's on your agenda?",
-         "seed::greeting::whats_up"},
+         "Not much - I'm right here and ready to help. What's on your agenda?",
+         "seed::greeting::whats_up", nullptr},
         {"Respond to a user who says 'Sup?'.",
          "Sup! I'm dialed in and ready to jump into whatever you need.",
-         "seed::greeting::sup"},
+         "seed::greeting::sup", nullptr},
         {"Respond to a user who says 'Howdy'.",
-         "Howdy! Always nice to hear from you—how can I lend a hand?",
-         "seed::greeting::howdy"},
+         "Howdy! Always nice to hear from you - how can I lend a hand?",
+         "seed::greeting::howdy", nullptr},
         {"Respond to a user who says 'Nice to meet you'.",
          "Nice to meet you too! Let me know what you're curious about and we'll explore it together.",
-         "seed::greeting::nice_to_meet_you"},
+         "seed::greeting::nice_to_meet_you", nullptr},
         {"Respond to a user who says 'Pleasure to meet you'.",
          "The pleasure's mine! I'm here whenever you want to dig into something.",
-         "seed::greeting::pleasure_to_meet_you"},
+         "seed::greeting::pleasure_to_meet_you", nullptr},
         {"Respond to a user who says 'Long time no see'.",
          "Long time no see! Let's pick up right where we left off.",
-         "seed::greeting::long_time_no_see"},
+         "seed::greeting::long_time_no_see", nullptr},
         {"Respond to a user who says 'Welcome back'.",
-         "Thanks! I'm all set to help—what should we get started on?",
-         "seed::greeting::welcome_back"},
+         "Thanks! I'm all set to help - what should we get started on?",
+         "seed::greeting::welcome_back", nullptr},
         {"Reply when someone thanks AlmondAI for the help.",
-         "You're very welcome! I'm glad I could assist—let me know if there's anything else you need.",
-         "seed::greeting::gratitude"},
+         "You're very welcome! I'm glad I could assist - let me know if there's anything else you need.",
+         "seed::greeting::gratitude", nullptr},
         {"Close a conversation with a friendly farewell.",
          "Thanks for chatting with me. If you have more questions later, I'll be here. Take care!",
-         "seed::greeting::farewell"},
+         "seed::greeting::farewell", nullptr},
         {"Respond to a user who says 'Goodbye'.",
-         "Goodbye! It was great chatting—feel free to reach out again anytime you need a hand.",
-         "seed::greeting::goodbye"}
+         "Goodbye! It was great chatting - feel free to reach out again anytime you need a hand.",
+         "seed::greeting::goodbye", nullptr}
     };
 }
 
@@ -422,13 +449,19 @@ void ensure_seed_samples() {
         return;
     }
 
-    auto emit_sample = [&out](const std::string& prompt,
-                              const std::string& teacher_output,
-                              const std::string& prompt_hash) {
+    auto emit_sample = [&out](const SeedSpec& spec) {
+        const std::string prompt = spec.prompt ? std::string{spec.prompt} : std::string{};
+        const std::string teacher_output = spec.teacher_output ? std::string{spec.teacher_output} : std::string{};
+        const std::string prompt_hash = spec.prompt_hash ? std::string{spec.prompt_hash} : std::string{};
+
         JsonObject provenance;
         provenance["source"] = Json("seed");
         provenance["prompt_hash"] = Json(prompt_hash);
-        provenance["teacher_hash"] = Json(std::to_string(std::hash<std::string>{}(teacher_output)));
+        if (spec.teacher_hash && spec.teacher_hash[0] != '\0') {
+            provenance["teacher_hash"] = Json(spec.teacher_hash);
+        } else {
+            provenance["teacher_hash"] = Json(std::to_string(std::hash<std::string>{}(teacher_output)));
+        }
 
         JsonObject sample;
         sample["prompt"] = Json(prompt);
@@ -449,7 +482,7 @@ void ensure_seed_samples() {
         if (std::string(spec.prompt).empty() || std::string(spec.teacher_output).empty()) {
             continue;
         }
-        emit_sample(spec.prompt, spec.teacher_output, spec.prompt_hash);
+        emit_sample(spec);
     }
 
 }
@@ -1026,7 +1059,8 @@ void ContinuousLearner::load_persistent_data() {
         std::size_t seed_completed = 0;
         auto register_seed_sample = [&](const std::string& prompt,
                                         const std::string& teacher_output,
-                                        const std::string& prompt_hash) {
+                                        const std::string& prompt_hash,
+                                        const char* teacher_hash = nullptr) {
             if (prompt.empty() || teacher_output.empty()) {
                 return;
             }
@@ -1038,7 +1072,11 @@ void ContinuousLearner::load_persistent_data() {
             JsonObject provenance;
             provenance["source"] = Json("seed");
             provenance["prompt_hash"] = Json(prompt_hash);
-            provenance["teacher_hash"] = Json(std::to_string(std::hash<std::string>{}(sample.teacher_output)));
+            if (teacher_hash && teacher_hash[0] != '\0') {
+                provenance["teacher_hash"] = Json(teacher_hash);
+            } else {
+                provenance["teacher_hash"] = Json(std::to_string(std::hash<std::string>{}(sample.teacher_output)));
+            }
             sample.provenance = Json(provenance);
             sample.semantic_tags = compute_semantic_tags(sample);
 
@@ -1107,7 +1145,7 @@ void ContinuousLearner::load_persistent_data() {
         }
 
         for (const auto& sample : greeting_samples) {
-            register_seed_sample(sample.prompt, sample.teacher_output, sample.prompt_hash);
+            register_seed_sample(sample.prompt, sample.teacher_output, sample.prompt_hash, sample.teacher_hash);
         }
 
         if (seed_total > 0) {
