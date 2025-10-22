@@ -70,7 +70,8 @@ default. Launch the server inside LM Studio, then either:
   `http://127.0.0.1:1234/v1/chat/completions` and the model defaults to
   `lmstudio`), or
 - run `chat use lmstudio` from the AlmondAI console to apply the same defaults
-  interactively.
+  interactively (see [`CONSOLE_HELP.md`](CONSOLE_HELP.md) for command refresher
+  tables).
 
 While LM Studio remains active every `generate` request will also trigger an
 automatic `train.step`, allowing the student model to learn from the remote

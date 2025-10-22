@@ -63,7 +63,8 @@ application:
 2. Either export `ALMONDAI_CHAT_KIND=lmstudio` before launching AlmondAI (the
    endpoint defaults to `http://127.0.0.1:1234/v1/chat/completions` and the model
    defaults to `lmstudio`) or run `chat use lmstudio` inside the console to apply
-   the same defaults interactively.
+   the same defaults interactively (see [`CONSOLE_HELP.md`](CONSOLE_HELP.md) for a
+   quick command refresher).
 3. Issue `generate` commands and the runtime will route requests through LM
    Studio, automatically curating and training on each remote reply while
    reporting the training outcome in the console.
