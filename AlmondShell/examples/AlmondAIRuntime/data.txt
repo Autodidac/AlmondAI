@@ -10,7 +10,7 @@ Not much <|endofseq|>
 
 Bonjour (French) <|endofseq|>
 Konnichiwa (Japanese) <|endofseq|>
-As-salamu alaykum (Arabic) → Wa alaykum as-salam <|endofseq|>
+As-salamu alaykum (Arabic) -> Wa alaykum as-salam <|endofseq|>
 Hola (Spanish) <|endofseq|>
 Sawasdee (Thai) <|endofseq|>
 
