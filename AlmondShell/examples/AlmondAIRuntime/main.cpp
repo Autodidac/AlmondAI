@@ -52,6 +52,31 @@
 
 namespace {
 
+std::optional<std::string> read_env(std::string_view name) {
+    std::string name_str{name};
+#if defined(_WIN32)
+    size_t length = 0;
+    char* buffer = nullptr;
+    if (_dupenv_s(&buffer, &length, name_str.c_str()) != 0 || buffer == nullptr) {
+        return std::nullopt;
+    }
+    std::string value(buffer);
+    free(buffer);
+    return value;
+#else
+    const char* value = std::getenv(name_str.c_str());
+    if (!value) {
+        return std::nullopt;
+    }
+    return std::string(value);
+#endif
+}
+
+std::string read_env_string(std::string_view name) {
+    auto value = read_env(name);
+    return value ? *value : std::string();
+}
+
 class CallbackStreambuf : public std::streambuf {
 public:
     using ChunkHandler = std::function<void(std::string_view)>;
@@ -125,10 +150,8 @@ int main() {
         return value;
     };
 
-    const char* fast_env_raw = std::getenv("ALMONDAI_FAST_LEARNING");
-    const char* rate_env_raw = std::getenv("ALMONDAI_LEARNING_RATE");
-    const std::string fast_env = fast_env_raw ? trim_copy(fast_env_raw) : std::string();
-    const std::string rate_env = rate_env_raw ? trim_copy(rate_env_raw) : std::string();
+    const std::string fast_env = trim_copy(read_env_string("ALMONDAI_FAST_LEARNING"));
+    const std::string rate_env = trim_copy(read_env_string("ALMONDAI_LEARNING_RATE"));
 
     auto bool_from_env = [&](const std::string& value) {
         const std::string lowered = lowercase_copy(value);
@@ -222,22 +245,6 @@ int main() {
     std::string chat_route_label;
     bool auto_train_remote = false;
 
-    auto getenv_string = [](const char* name) -> std::string {
-#if defined(_WIN32)
-        char* buf = nullptr;
-        size_t len = 0;
-        if (_dupenv_s(&buf, &len, name) == 0 && buf) {
-            std::string value(buf);
-            free(buf);
-            return value;
-        }
-        return {};
-#else
-        const char* value = std::getenv(name);
-        return value ? std::string(value) : std::string();
-#endif
-        };
-
     auto to_lower = [](std::string value) {
         std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
             return static_cast<char>(std::tolower(c));
@@ -325,14 +332,14 @@ int main() {
         }
     };
 
-    std::string env_kind = getenv_string("ALMONDAI_CHAT_KIND");
-    std::string env_endpoint = getenv_string("ALMONDAI_ENDPOINT");
-    std::string env_model = getenv_string("ALMONDAI_MODEL");
-    std::string env_key = getenv_string("ALMONDAI_API_KEY");
+    std::string env_kind = read_env_string("ALMONDAI_CHAT_KIND");
+    std::string env_endpoint = read_env_string("ALMONDAI_ENDPOINT");
+    std::string env_model = read_env_string("ALMONDAI_MODEL");
+    std::string env_key = read_env_string("ALMONDAI_API_KEY");
 
-    const std::string gpt_endpoint = getenv_string("ALMONDAI_GPT_ENDPOINT");
-    const std::string gpt_model = getenv_string("ALMONDAI_GPT_MODEL");
-    const std::string gpt_key = getenv_string("ALMONDAI_GPT_API_KEY");
+    const std::string gpt_endpoint = read_env_string("ALMONDAI_GPT_ENDPOINT");
+    const std::string gpt_model = read_env_string("ALMONDAI_GPT_MODEL");
+    const std::string gpt_key = read_env_string("ALMONDAI_GPT_API_KEY");
 
     if (env_kind.empty() && (!gpt_endpoint.empty() || !gpt_model.empty() || !gpt_key.empty())) {
         env_kind = "openai";

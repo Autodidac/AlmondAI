@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <cmath>
 #include <numeric>
+#include <optional>
 #include <unordered_map>
 #include <unordered_set>
 #include <string_view>
@@ -120,12 +121,32 @@ struct SeedSpec {
     const char* prompt_hash;
 };
 
+std::optional<std::string> read_env(std::string_view name) {
+    std::string name_str{name};
+#if defined(_WIN32)
+    size_t length = 0;
+    char* buffer = nullptr;
+    if (_dupenv_s(&buffer, &length, name_str.c_str()) != 0 || buffer == nullptr) {
+        return std::nullopt;
+    }
+    std::string value(buffer);
+    free(buffer);
+    return value;
+#else
+    const char* value = std::getenv(name_str.c_str());
+    if (!value) {
+        return std::nullopt;
+    }
+    return std::string(value);
+#endif
+}
+
 std::string determine_seed_profile() {
-    const char* env = std::getenv("ALMONDAI_SEED_PROFILE");
+    const auto env = read_env("ALMONDAI_SEED_PROFILE");
     if (!env) {
         return "rich";
     }
-    std::string profile(env);
+    std::string profile(*env);
     auto not_space = [](unsigned char ch) { return !std::isspace(ch); };
     profile.erase(profile.begin(), std::find_if(profile.begin(), profile.end(), not_space));
     profile.erase(std::find_if(profile.rbegin(), profile.rend(), not_space).base(), profile.end());
