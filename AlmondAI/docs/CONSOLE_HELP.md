@@ -24,6 +24,7 @@ Keep it handy when you are learning the runtime or showing it to someone new.
 | --- | --- | --- |
 | `generate <prompt>` | Sends your question through the active model (local student or remote teacher) and shows who answered. | `generate Summarize the roadmap highlights.` |
 | `retrieve <query>` | Looks up stored samples so you can confirm the learner has context for a topic. | `retrieve greeting` |
+| `reader [file] [limit] [offset]` | Prints prompts and teacher replies directly from a JSONL dataset (defaults to `data/training_data.jsonl`). | `reader seed 5` |
 
 ## Train or change adapters
 

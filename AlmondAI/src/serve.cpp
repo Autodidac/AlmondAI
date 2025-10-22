@@ -781,6 +781,150 @@ JsonObject Service::handle_request(const MCPBridge::Request& request) {
         return payload;
     }
 
+    if (request.method == "data.read" || request.method == "reader") {
+        std::string file = "data/training_data.jsonl";
+        int offset = 0;
+        int limit = 20;
+
+        auto parse_int = [](const Json& value, int fallback) {
+            return std::visit(
+                [fallback](const auto& raw) -> int {
+                    using T = std::decay_t<decltype(raw)>;
+                    if constexpr (std::is_same_v<T, double>) {
+                        return static_cast<int>(raw);
+                    } else if constexpr (std::is_same_v<T, bool>) {
+                        return raw ? 1 : 0;
+                    } else if constexpr (std::is_same_v<T, std::string>) {
+                        try {
+                            std::size_t idx = 0;
+                            int parsed = std::stoi(raw, &idx);
+                            if (idx == raw.size()) {
+                                return parsed;
+                            }
+                        } catch (...) {
+                        }
+                        return fallback;
+                    } else {
+                        return fallback;
+                    }
+                },
+                value.value());
+        };
+
+        if (request.params.is_object()) {
+            const auto& params = request.params.as_object();
+            if (auto it = params.find("file"); it != params.end() && it->second.is_string()) {
+                file = it->second.as_string();
+            }
+            if (auto it = params.find("offset"); it != params.end()) {
+                offset = parse_int(it->second, offset);
+            }
+            if (auto it = params.find("limit"); it != params.end()) {
+                limit = parse_int(it->second, limit);
+            }
+        }
+
+        if (offset < 0) {
+            offset = 0;
+        }
+        if (limit < 0) {
+            limit = 0;
+        }
+
+        namespace fs = std::filesystem;
+        const fs::path dataset_path{file};
+        std::error_code ec;
+        const bool exists = fs::exists(dataset_path, ec);
+        if (!exists || ec) {
+            throw std::runtime_error("JSONL file not found: " + file);
+        }
+
+        fs::path resolved = fs::weakly_canonical(dataset_path, ec);
+        if (ec || resolved.empty()) {
+            resolved = fs::absolute(dataset_path, ec);
+            if (ec || resolved.empty()) {
+                resolved = dataset_path;
+            }
+        }
+
+        std::ifstream in(resolved);
+        if (!in) {
+            throw std::runtime_error("Unable to open JSONL file: " + resolved.string());
+        }
+
+        std::string line;
+        int skipped = 0;
+        while (skipped < offset && std::getline(in, line)) {
+            ++skipped;
+        }
+
+        JsonArray records;
+        int consumed = skipped;
+
+        while ((limit <= 0 || static_cast<int>(records.size()) < limit) && std::getline(in, line)) {
+            ++consumed;
+            if (line.empty()) {
+                continue;
+            }
+
+            JsonObject entry;
+            entry["line"] = Json(consumed);
+            entry["raw"] = Json(line);
+            try {
+                Json parsed = Json::parse(line);
+                if (parsed.is_object()) {
+                    const auto& obj = parsed.as_object();
+                    if (auto it = obj.find("prompt"); it != obj.end() && it->second.is_string()) {
+                        entry["prompt"] = Json(it->second.as_string());
+                    }
+                    if (auto it = obj.find("teacher_output"); it != obj.end() && it->second.is_string()) {
+                        entry["teacher_output"] = Json(it->second.as_string());
+                    }
+                    if (auto it = obj.find("constraints"); it != obj.end()) {
+                        entry["constraints"] = it->second;
+                    }
+                    if (auto it = obj.find("tags"); it != obj.end()) {
+                        entry["tags"] = it->second;
+                    }
+                    if (auto it = obj.find("provenance"); it != obj.end()) {
+                        entry["provenance"] = it->second;
+                    }
+                }
+            } catch (const std::exception& ex) {
+                entry["error"] = Json(std::string("parse_error: ") + ex.what());
+            }
+
+            records.emplace_back(Json(entry));
+        }
+
+        const bool at_end = in.eof();
+        const bool truncated = (limit > 0 && static_cast<int>(records.size()) >= limit && !at_end) || in.bad();
+
+        std::ostringstream summary;
+        summary << "Read " << records.size() << " record" << (records.size() == 1 ? "" : "s")
+                << " from '" << resolved.string() << "'";
+        if (limit > 0) {
+            summary << " (limit=" << limit << ')';
+        }
+        if (skipped > 0) {
+            summary << ", starting at line " << (skipped + 1);
+        }
+
+        JsonObject payload;
+        payload["output"] = Json(summary.str());
+        payload["file"] = Json(file);
+        payload["resolved_path"] = Json(resolved.string());
+        payload["offset"] = Json(offset);
+        payload["offset_applied"] = Json(skipped);
+        payload["limit"] = Json(limit);
+        payload["count"] = Json(static_cast<int>(records.size()));
+        payload["next_offset"] = Json(consumed);
+        payload["truncated"] = Json(truncated);
+        payload["reached_end"] = Json(at_end);
+        payload["records"] = Json(records);
+        return payload;
+    }
+
     if (request.method == "compiler.build") {
         const auto& params = request.params.as_object();
         JsonObject diagnostics;

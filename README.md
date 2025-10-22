@@ -118,6 +118,7 @@ command index in [`docs/CONSOLE_COMMANDS.md`](AlmondAI/docs/CONSOLE_COMMANDS.md)
 | --- | --- | --- |
 | `generate <prompt>` | Sends a prompt through the active route (local student or remote teacher) and shows which backend replied. | `generate Summarize the last training run.` |
 | `retrieve <query>` | Searches the retrieval index so you can confirm that curated samples or seed data are available. | `retrieve greeting curriculum` |
+| `reader [file] [limit] [offset]` | Streams records from a JSONL dataset so you can inspect prompts and teacher replies without leaving the console. Defaults to `data/training_data.jsonl`. | `reader seed 3` |
 
 #### Train or swap adapters
 
