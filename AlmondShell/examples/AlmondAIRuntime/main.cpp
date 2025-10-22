@@ -495,7 +495,7 @@ int main() {
         return std::nullopt;
         };
 
-    auto invoke_service_streaming = [&service](const std::string& method, Json params) -> bool {
+    auto invoke_service_streaming = [&service](const std::string& method, Json params, Json* out_result) -> bool {
         JsonObject request;
         request["id"] = Json("cli");
         request["method"] = Json(method);
@@ -559,6 +559,16 @@ int main() {
             }, value.value());
         };
 
+        auto parse_label = [](const JsonObject& obj, std::string fallback = "train") {
+            if (auto it = obj.find("label"); it != obj.end() && it->second.is_string()) {
+                std::string label = it->second.as_string();
+                if (!label.empty()) {
+                    return label;
+                }
+            }
+            return fallback;
+        };
+
         std::istringstream input(Json(request).dump() + "\n");
         std::size_t last_width = 0;
         bool saw_batch = false;
@@ -568,6 +578,7 @@ int main() {
         std::string fallback_text;
         std::string pending;
         bool received_any = false;
+        std::optional<Json> captured_result;
 
         auto handle_line = [&](std::string raw) {
             if (!raw.empty() && raw.back() == '\r') raw.pop_back();
@@ -613,11 +624,21 @@ int main() {
                     if (auto loss_it = obj.find("loss"); loss_it != obj.end()) {
                         loss_value = parse_double(loss_it->second, loss_value);
                     }
+                    double acc_value = 0.0;
+                    bool have_accuracy = false;
+                    if (auto acc_it = obj.find("accuracy"); acc_it != obj.end()) {
+                        acc_value = parse_double(acc_it->second, acc_value);
+                        have_accuracy = true;
+                    }
+                    const std::string label = parse_label(obj);
                     final_step = step_value;
                     final_loss = loss_value;
                     std::ostringstream progress;
-                    progress << "[train] step " << step_value
+                    progress << '[' << label << "] step " << step_value
                              << " loss " << std::fixed << std::setprecision(4) << loss_value;
+                    if (have_accuracy) {
+                        progress << " acc " << std::fixed << std::setprecision(4) << acc_value;
+                    }
                     const std::string text = progress.str();
                     std::cout << '\r' << text;
                     if (last_width > text.size()) {
@@ -638,7 +659,8 @@ int main() {
                             std::cout << '\r' << std::string(last_width, ' ') << '\r';
                             last_width = 0;
                         }
-                        std::cout << "[train] " << message << '\n';
+                        const std::string label = parse_label(obj);
+                        std::cout << '[' << label << "] " << message << '\n';
                         std::cout.flush();
                     }
                     return;
@@ -646,6 +668,7 @@ int main() {
             }
 
             if (auto result_it = obj.find("result"); result_it != obj.end() && result_it->second.is_object()) {
+                captured_result = result_it->second;
                 const auto& result = result_it->second.as_object();
                 if (auto loss_it = result.find("final_loss"); loss_it != result.end()) {
                     final_loss = parse_double(loss_it->second, final_loss);
@@ -693,11 +716,30 @@ int main() {
             if (saw_batch && last_width > 0) {
                 std::cout << '\r' << std::string(last_width, ' ') << '\r';
             }
-            std::ostringstream summary;
-            summary << "Training complete (loss=" << std::fixed << std::setprecision(4) << final_loss
-                    << ", steps=" << final_step << ")\n";
-            std::cout << summary.str();
+            std::string summary_text;
+            std::string summary_label = "train";
+            if (captured_result && captured_result->is_object()) {
+                const auto& result_obj = captured_result->as_object();
+                summary_label = parse_label(result_obj, summary_label);
+                if (auto out_it = result_obj.find("output"); out_it != result_obj.end() && out_it->second.is_string()) {
+                    summary_text = out_it->second.as_string();
+                }
+            }
+            if (summary_text.empty()) {
+                std::ostringstream summary;
+                summary << "Training complete (loss=" << std::fixed << std::setprecision(4) << final_loss
+                        << ", steps=" << final_step << ')';
+                summary_text = summary.str();
+            }
+            if (summary_label != "train") {
+                std::cout << '[' << summary_label << "] " << summary_text << '\n';
+            } else {
+                std::cout << summary_text << '\n';
+            }
             std::cout.flush();
+            if (out_result && captured_result) {
+                *out_result = *captured_result;
+            }
         }
         else if (saw_batch) {
             if (last_width > 0) {
@@ -1214,6 +1256,238 @@ int main() {
                     params["tags"] = Json(tag_array);
                 }
 
+                auto process_self_loop_result = [&](const JsonObject& obj, bool skip_output_line) {
+                    if (!skip_output_line) {
+                        if (auto out_it = obj.find("output"); out_it != obj.end() && out_it->second.is_string()) {
+                            std::cout << out_it->second.as_string() << "\n";
+                        }
+                    }
+
+                    auto get_int_field = [&](const char* key) -> std::optional<int> {
+                        if (auto it = obj.find(key); it != obj.end()) {
+                            if (auto parsed = parse_optional_int(it->second)) {
+                                return parsed;
+                            }
+                        }
+                        return std::nullopt;
+                    };
+
+                    auto get_double_field = [&](const char* key) -> std::optional<double> {
+                        if (auto it = obj.find(key); it != obj.end()) {
+                            return parse_optional_double(it->second);
+                        }
+                        return std::nullopt;
+                    };
+
+                    std::optional<int> loops_completed = get_int_field("loops_completed");
+                    std::optional<int> loops_requested = get_int_field("loops_requested");
+                    std::optional<int> processed = get_int_field("processed");
+                    std::optional<int> trained = get_int_field("trained");
+                    std::optional<int> skipped = get_int_field("skipped");
+                    std::optional<int> unavailable = get_int_field("teacher_unavailable");
+                    std::optional<double> avg_loss = get_double_field("average_loss");
+                    std::optional<double> avg_accuracy = get_double_field("average_accuracy");
+
+                    bool printed_summary = false;
+                    if (loops_completed || loops_requested || processed || trained || skipped || unavailable) {
+                        std::cout << "Summary: ";
+                        printed_summary = true;
+                        bool first_field = true;
+                        if (loops_completed || loops_requested) {
+                            std::cout << "loops=";
+                            if (loops_completed) {
+                                std::cout << *loops_completed;
+                            }
+                            if (loops_requested) {
+                                if (!loops_completed || *loops_requested != *loops_completed) {
+                                    std::cout << '/' << *loops_requested;
+                                }
+                            }
+                            first_field = false;
+                        }
+                        auto append_field = [&](const char* label, const std::optional<int>& value) {
+                            if (!value) {
+                                return;
+                            }
+                            if (!first_field) {
+                                std::cout << ", ";
+                            }
+                            first_field = false;
+                            std::cout << label << '=' << *value;
+                        };
+                        append_field("processed", processed);
+                        append_field("trained", trained);
+                        append_field("skipped", skipped);
+                        append_field("unavailable", unavailable);
+                        std::cout << '\n';
+                    }
+                    if (avg_loss || avg_accuracy) {
+                        std::vector<std::string> metrics;
+                        if (avg_loss) {
+                            std::ostringstream oss;
+                            oss << std::fixed << std::setprecision(4) << *avg_loss;
+                            metrics.push_back("loss=" + oss.str());
+                        }
+                        if (avg_accuracy) {
+                            std::ostringstream oss;
+                            oss << std::fixed << std::setprecision(3) << *avg_accuracy;
+                            metrics.push_back("acc=" + oss.str());
+                        }
+                        if (!metrics.empty()) {
+                            std::cout << "Averages: ";
+                            for (std::size_t i = 0; i < metrics.size(); ++i) {
+                                if (i != 0) {
+                                    std::cout << ", ";
+                                }
+                                std::cout << metrics[i];
+                            }
+                            std::cout << '\n';
+                        }
+                    }
+
+                    if (auto tags_it = obj.find("requested_tags"); tags_it != obj.end() && tags_it->second.is_array()) {
+                        const auto& arr = tags_it->second.as_array();
+                        if (!arr.empty()) {
+                            std::cout << "Tags: ";
+                            for (std::size_t idx = 0; idx < arr.size(); ++idx) {
+                                if (idx != 0) {
+                                    std::cout << ", ";
+                                }
+                                if (arr[idx].is_string()) {
+                                    std::cout << arr[idx].as_string();
+                                }
+                            }
+                            std::cout << '\n';
+                        }
+                    }
+
+                    auto print_event_log = [&]() {
+                        auto events_it = obj.find("events");
+                        if (events_it == obj.end() || !events_it->second.is_array()) {
+                            return;
+                        }
+                        const auto& events = events_it->second.as_array();
+                        if (events.empty()) {
+                            return;
+                        }
+                        std::cout << "Event log:\n";
+                        for (const auto& entry : events) {
+                            if (!entry.is_object()) {
+                                continue;
+                            }
+                            const auto& event = entry.as_object();
+                            std::optional<int> iteration = std::nullopt;
+                            if (auto it = event.find("iteration"); it != event.end()) {
+                                iteration = parse_optional_int(it->second);
+                            }
+                            std::string status;
+                            if (auto it = event.find("status"); it != event.end() && it->second.is_string()) {
+                                status = it->second.as_string();
+                            }
+                            std::string route;
+                            if (auto it = event.find("teacher_route"); it != event.end() && it->second.is_string()) {
+                                route = it->second.as_string();
+                            }
+                            std::string source;
+                            if (auto it = event.find("teacher_source"); it != event.end() && it->second.is_string()) {
+                                source = it->second.as_string();
+                            }
+                            std::string prompt_text;
+                            if (auto it = event.find("prompt"); it != event.end() && it->second.is_string()) {
+                                prompt_text = it->second.as_string();
+                            }
+                            std::string snippet = prompt_text;
+                            const std::size_t max_snippet = 80;
+                            if (snippet.size() > max_snippet) {
+                                snippet = snippet.substr(0, max_snippet - 3) + "...";
+                            }
+                            auto loss = event.find("loss");
+                            std::optional<double> loss_value = (loss != event.end()) ? parse_optional_double(loss->second) : std::nullopt;
+                            auto acc = event.find("accuracy");
+                            std::optional<double> acc_value = (acc != event.end()) ? parse_optional_double(acc->second) : std::nullopt;
+
+                            std::cout << "- ";
+                            if (iteration) {
+                                std::cout << "[#" << *iteration << "] ";
+                            }
+                            if (!status.empty()) {
+                                std::cout << status;
+                            } else {
+                                std::cout << "(unknown)";
+                            }
+                            if (!route.empty()) {
+                                std::cout << " via " << route;
+                            }
+                            if (!source.empty()) {
+                                std::cout << " source=" << source;
+                            }
+                            if (auto req_it = event.find("requested_tags"); req_it != event.end() && req_it->second.is_array()) {
+                                const auto& arr = req_it->second.as_array();
+                                if (!arr.empty()) {
+                                    std::cout << " tags=[";
+                                    for (std::size_t idx = 0; idx < arr.size(); ++idx) {
+                                        if (idx != 0) {
+                                            std::cout << ',';
+                                        }
+                                        if (arr[idx].is_string()) {
+                                            std::cout << arr[idx].as_string();
+                                        }
+                                    }
+                                    std::cout << ']';
+                                }
+                            }
+                            if (loss_value) {
+                                std::ostringstream metric;
+                                metric << std::fixed << std::setprecision(4) << *loss_value;
+                                std::cout << " loss=" << metric.str();
+                            }
+                            if (acc_value) {
+                                std::ostringstream metric;
+                                metric << std::fixed << std::setprecision(3) << *acc_value;
+                                std::cout << " acc=" << metric.str();
+                            }
+                            if (auto sem_it = event.find("semantic_tags"); sem_it != event.end() && sem_it->second.is_array()) {
+                                const auto& arr = sem_it->second.as_array();
+                                if (!arr.empty()) {
+                                    std::cout << " sample_tags=[";
+                                    for (std::size_t idx = 0; idx < arr.size(); ++idx) {
+                                        if (idx != 0) {
+                                            std::cout << ',';
+                                        }
+                                        if (arr[idx].is_string()) {
+                                            std::cout << arr[idx].as_string();
+                                        }
+                                    }
+                                    std::cout << ']';
+                                }
+                            }
+                            if (!snippet.empty()) {
+                                std::cout << " | " << snippet;
+                            }
+                            std::cout << '\n';
+                        }
+                        if (auto truncated_it = obj.find("events_truncated"); truncated_it != obj.end()) {
+                            if (parse_bool_value(truncated_it->second, false)) {
+                                std::cout << "(event log truncated)\n";
+                            }
+                        }
+                    };
+
+                    print_event_log();
+
+                    if (!printed_summary && !avg_loss && !avg_accuracy) {
+                        std::cout << "Self-learning request completed.\n";
+                    }
+                };
+
+                Json stream_result;
+                if (invoke_service_streaming("train.self_loop", Json(params), &stream_result)) {
+                    if (stream_result.is_object()) {
+                        process_self_loop_result(stream_result.as_object(), true);
+                    }
+                    return;
+                }
+
                 auto response = invoke_service("train.self_loop", Json(params));
                 if (!response) {
                     std::cout << "(no response)\n";
@@ -1230,226 +1504,7 @@ int main() {
                     return;
                 }
 
-                const auto& obj = response->as_object();
-                if (auto out_it = obj.find("output"); out_it != obj.end() && out_it->second.is_string()) {
-                    std::cout << out_it->second.as_string() << "\n";
-                }
-
-                auto get_int_field = [&](const char* key) -> std::optional<int> {
-                    if (auto it = obj.find(key); it != obj.end()) {
-                        if (auto parsed = parse_optional_int(it->second)) {
-                            return parsed;
-                        }
-                    }
-                    return std::nullopt;
-                };
-
-                auto get_double_field = [&](const char* key) -> std::optional<double> {
-                    if (auto it = obj.find(key); it != obj.end()) {
-                        return parse_optional_double(it->second);
-                    }
-                    return std::nullopt;
-                };
-
-                std::optional<int> loops_completed = get_int_field("loops_completed");
-                std::optional<int> loops_requested = get_int_field("loops_requested");
-                std::optional<int> processed = get_int_field("processed");
-                std::optional<int> trained = get_int_field("trained");
-                std::optional<int> skipped = get_int_field("skipped");
-                std::optional<int> unavailable = get_int_field("teacher_unavailable");
-                std::optional<double> avg_loss = get_double_field("average_loss");
-                std::optional<double> avg_accuracy = get_double_field("average_accuracy");
-
-                bool printed_summary = false;
-                if (loops_completed || loops_requested || processed || trained || skipped || unavailable) {
-                    std::cout << "Summary: ";
-                    printed_summary = true;
-                    bool first_field = true;
-                    if (loops_completed || loops_requested) {
-                        std::cout << "loops=";
-                        if (loops_completed) {
-                            std::cout << *loops_completed;
-                        }
-                        if (loops_requested) {
-                            if (!loops_completed || *loops_requested != *loops_completed) {
-                                std::cout << '/' << *loops_requested;
-                            }
-                        }
-                        first_field = false;
-                    }
-                    auto append_field = [&](const char* label, const std::optional<int>& value) {
-                        if (!value) {
-                            return;
-                        }
-                        if (!first_field) {
-                            std::cout << ", ";
-                        }
-                        first_field = false;
-                        std::cout << label << '=' << *value;
-                    };
-                    append_field("processed", processed);
-                    append_field("trained", trained);
-                    append_field("skipped", skipped);
-                    append_field("unavailable", unavailable);
-                    std::cout << '\n';
-                }
-                if (avg_loss || avg_accuracy) {
-                    std::vector<std::string> metrics;
-                    if (avg_loss) {
-                        std::ostringstream oss;
-                        oss << std::fixed << std::setprecision(4) << *avg_loss;
-                        metrics.push_back("loss=" + oss.str());
-                    }
-                    if (avg_accuracy) {
-                        std::ostringstream oss;
-                        oss << std::fixed << std::setprecision(3) << *avg_accuracy;
-                        metrics.push_back("acc=" + oss.str());
-                    }
-                    if (!metrics.empty()) {
-                        std::cout << "Averages: ";
-                        for (std::size_t i = 0; i < metrics.size(); ++i) {
-                            if (i != 0) {
-                                std::cout << ", ";
-                            }
-                            std::cout << metrics[i];
-                        }
-                        std::cout << '\n';
-                    }
-                }
-
-                if (auto tags_it = obj.find("requested_tags"); tags_it != obj.end() && tags_it->second.is_array()) {
-                    const auto& arr = tags_it->second.as_array();
-                    if (!arr.empty()) {
-                        std::cout << "Tags: ";
-                        for (std::size_t idx = 0; idx < arr.size(); ++idx) {
-                            if (idx != 0) {
-                                std::cout << ", ";
-                            }
-                            if (arr[idx].is_string()) {
-                                std::cout << arr[idx].as_string();
-                            }
-                        }
-                        std::cout << '\n';
-                    }
-                }
-
-                auto print_event_log = [&]() {
-                    auto events_it = obj.find("events");
-                    if (events_it == obj.end() || !events_it->second.is_array()) {
-                        return;
-                    }
-                    const auto& events = events_it->second.as_array();
-                    if (events.empty()) {
-                        return;
-                    }
-                    std::cout << "Event log:\n";
-                    for (const auto& entry : events) {
-                        if (!entry.is_object()) {
-                            continue;
-                        }
-                        const auto& event = entry.as_object();
-                        std::optional<int> iteration = std::nullopt;
-                        if (auto it = event.find("iteration"); it != event.end()) {
-                            iteration = parse_optional_int(it->second);
-                        }
-                        std::string status;
-                        if (auto it = event.find("status"); it != event.end() && it->second.is_string()) {
-                            status = it->second.as_string();
-                        }
-                        std::string route;
-                        if (auto it = event.find("teacher_route"); it != event.end() && it->second.is_string()) {
-                            route = it->second.as_string();
-                        }
-                        std::string source;
-                        if (auto it = event.find("teacher_source"); it != event.end() && it->second.is_string()) {
-                            source = it->second.as_string();
-                        }
-                        std::string prompt_text;
-                        if (auto it = event.find("prompt"); it != event.end() && it->second.is_string()) {
-                            prompt_text = it->second.as_string();
-                        }
-                        std::string snippet = prompt_text;
-                        const std::size_t max_snippet = 80;
-                        if (snippet.size() > max_snippet) {
-                            snippet = snippet.substr(0, max_snippet - 3) + "...";
-                        }
-                        auto loss = event.find("loss");
-                        std::optional<double> loss_value = (loss != event.end()) ? parse_optional_double(loss->second) : std::nullopt;
-                        auto acc = event.find("accuracy");
-                        std::optional<double> acc_value = (acc != event.end()) ? parse_optional_double(acc->second) : std::nullopt;
-
-                        std::cout << "- ";
-                        if (iteration) {
-                            std::cout << "[#" << *iteration << "] ";
-                        }
-                        if (!status.empty()) {
-                            std::cout << status;
-                        } else {
-                            std::cout << "(unknown)";
-                        }
-                        if (!route.empty()) {
-                            std::cout << " via " << route;
-                        }
-                        if (!source.empty()) {
-                            std::cout << " source=" << source;
-                        }
-                        if (auto req_it = event.find("requested_tags"); req_it != event.end() && req_it->second.is_array()) {
-                            const auto& arr = req_it->second.as_array();
-                            if (!arr.empty()) {
-                                std::cout << " tags=[";
-                                for (std::size_t idx = 0; idx < arr.size(); ++idx) {
-                                    if (idx != 0) {
-                                        std::cout << ',';
-                                    }
-                                    if (arr[idx].is_string()) {
-                                        std::cout << arr[idx].as_string();
-                                    }
-                                }
-                                std::cout << ']';
-                            }
-                        }
-                        if (loss_value) {
-                            std::ostringstream metric;
-                            metric << std::fixed << std::setprecision(4) << *loss_value;
-                            std::cout << " loss=" << metric.str();
-                        }
-                        if (acc_value) {
-                            std::ostringstream metric;
-                            metric << std::fixed << std::setprecision(3) << *acc_value;
-                            std::cout << " acc=" << metric.str();
-                        }
-                        if (auto sem_it = event.find("semantic_tags"); sem_it != event.end() && sem_it->second.is_array()) {
-                            const auto& arr = sem_it->second.as_array();
-                            if (!arr.empty()) {
-                                std::cout << " sample_tags=[";
-                                for (std::size_t idx = 0; idx < arr.size(); ++idx) {
-                                    if (idx != 0) {
-                                        std::cout << ',';
-                                    }
-                                    if (arr[idx].is_string()) {
-                                        std::cout << arr[idx].as_string();
-                                    }
-                                }
-                                std::cout << ']';
-                            }
-                        }
-                        if (!snippet.empty()) {
-                            std::cout << " | " << snippet;
-                        }
-                        std::cout << '\n';
-                    }
-                    if (auto truncated_it = obj.find("events_truncated"); truncated_it != obj.end()) {
-                        if (parse_bool_value(truncated_it->second, false)) {
-                            std::cout << "(event log truncated)\n";
-                        }
-                    }
-                };
-
-                print_event_log();
-
-                if (!printed_summary && !avg_loss && !avg_accuracy) {
-                    std::cout << "Self-learning request completed.\n";
-                }
+                process_self_loop_result(response->as_object(), false);
             };
 
             auto is_integer_token = [](const std::string& text) {
@@ -2230,8 +2285,8 @@ int main() {
                 params["epochs"] = Json(epochs);
                 params["batch"] = Json(batch);
 
-                if (!invoke_service_streaming("trainer.fit", Json(params))) {
-                    if (!invoke_service_streaming("train", Json(params))) {
+                if (!invoke_service_streaming("trainer.fit", Json(params), nullptr)) {
+                    if (!invoke_service_streaming("train", Json(params), nullptr)) {
                         std::cout << "(no response)\n";
                     }
                 }

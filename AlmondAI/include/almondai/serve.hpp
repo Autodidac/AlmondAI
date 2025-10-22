@@ -28,6 +28,7 @@ private:
 
     JsonObject handle_request(const MCPBridge::Request& request);
     void handle_trainer_fit(const MCPBridge::Request& request, std::ostream& out);
+    void handle_train_self_loop(const MCPBridge::Request& request, std::ostream& out);
 };
 
 } // namespace almondai

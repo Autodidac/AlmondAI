@@ -595,6 +595,8 @@ void Service::run(std::istream& in, std::ostream& out) {
         try {
             if (request->method == "trainer.fit") {
                 handle_trainer_fit(*request, out);
+            } else if (request->method == "train.self_loop") {
+                handle_train_self_loop(*request, out);
             } else {
                 JsonObject payload = handle_request(*request);
                 m_bridge.send_response(out, request->id, Json(payload));
@@ -1130,307 +1132,6 @@ JsonObject Service::handle_request(const MCPBridge::Request& request) {
         return payload;
     }
 
-    if (request.method == "train.self_loop") {
-        const JsonObject& params = request.params.is_object() ? request.params.as_object() : JsonObject{};
-
-        auto parse_int = [](const Json& value, int fallback) {
-            return std::visit(
-                [fallback](const auto& raw) -> int {
-                    using T = std::decay_t<decltype(raw)>;
-                    if constexpr (std::is_same_v<T, double>) {
-                        return static_cast<int>(raw);
-                    } else if constexpr (std::is_same_v<T, bool>) {
-                        return raw ? 1 : 0;
-                    } else if constexpr (std::is_same_v<T, std::string>) {
-                        try {
-                            std::size_t idx = 0;
-                            int parsed = std::stoi(raw, &idx);
-                            if (idx == raw.size()) {
-                                return parsed;
-                            }
-                        } catch (...) {
-                        }
-                        return fallback;
-                    } else {
-                        return fallback;
-                    }
-                },
-                value.value());
-        };
-
-        auto parse_bool = [](const Json& value, bool fallback) {
-            return std::visit(
-                [fallback](const auto& raw) -> bool {
-                    using T = std::decay_t<decltype(raw)>;
-                    if constexpr (std::is_same_v<T, bool>) {
-                        return raw;
-                    } else if constexpr (std::is_same_v<T, double>) {
-                        return raw != 0.0;
-                    } else if constexpr (std::is_same_v<T, std::string>) {
-                        std::string lowered = raw;
-                        std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char ch) {
-                            return static_cast<char>(std::tolower(ch));
-                        });
-                        if (lowered == "true" || lowered == "1" || lowered == "yes") {
-                            return true;
-                        }
-                        if (lowered == "false" || lowered == "0" || lowered == "no") {
-                            return false;
-                        }
-                        return fallback;
-                    } else {
-                        return fallback;
-                    }
-                },
-                value.value());
-        };
-
-        int loops = 1;
-        int delay_ms = 0;
-        bool shuffle = false;
-        bool force_new = false;
-        int limit = 0;
-
-        if (auto it = params.find("loops"); it != params.end()) {
-            loops = parse_int(it->second, loops);
-        }
-        if (auto it = params.find("delay_ms"); it != params.end()) {
-            delay_ms = parse_int(it->second, delay_ms);
-        }
-        if (auto it = params.find("shuffle"); it != params.end()) {
-            shuffle = parse_bool(it->second, shuffle);
-        }
-        if (auto it = params.find("force_new"); it != params.end()) {
-            force_new = parse_bool(it->second, force_new);
-        }
-        if (auto it = params.find("limit"); it != params.end()) {
-            limit = parse_int(it->second, limit);
-        }
-
-        std::vector<std::string> tag_filter;
-        if (auto it = params.find("tags"); it != params.end()) {
-            tag_filter = parse_tag_filter(it->second);
-        }
-
-        loops = std::clamp(loops, 1, 1000);
-        delay_ms = std::clamp(delay_ms, 0, 60000);
-        if (limit < 0) {
-            limit = 0;
-        }
-
-        std::vector<std::string> prompts = load_self_learning_prompts(*m_learner, tag_filter);
-        if (prompts.empty()) {
-            if (!tag_filter.empty()) {
-                throw std::runtime_error("no prompts available for requested tags");
-            }
-            throw std::runtime_error("no prompts available for self-learning");
-        }
-
-        const std::size_t max_total = 10000;
-        std::size_t desired_total = static_cast<std::size_t>(loops) * prompts.size();
-        if (limit > 0) {
-            desired_total = std::min<std::size_t>(desired_total, static_cast<std::size_t>(limit));
-        }
-        desired_total = std::min(desired_total, max_total);
-        if (desired_total == 0) {
-            desired_total = std::min<std::size_t>(prompts.size(), max_total);
-        }
-
-        std::vector<std::size_t> order(prompts.size());
-        std::iota(order.begin(), order.end(), std::size_t{0});
-
-        std::size_t processed = 0;
-        int loops_completed = 0;
-        int trained = 0;
-        int skipped = 0;
-        int unavailable = 0;
-        double loss_accumulator = 0.0;
-        double accuracy_accumulator = 0.0;
-        bool events_truncated = false;
-
-        JsonArray events;
-        events.reserve(std::min<std::size_t>(desired_total, std::size_t{200}));
-
-        std::mt19937 rng = make_rng();
-        auto last_debug_update = std::chrono::steady_clock::now();
-
-        while (processed < desired_total && loops_completed < loops) {
-            if (shuffle) {
-                std::shuffle(order.begin(), order.end(), rng);
-            }
-
-            for (std::size_t index : order) {
-                if (processed >= desired_total) {
-                    break;
-                }
-
-                const std::string& prompt = prompts[index];
-                TeacherFetchOutcome teacher = fetch_teacher_output(*m_learner, m_bridge, prompt, Json(), m_chat_route);
-
-                JsonObject event;
-                event["prompt"] = Json(prompt);
-                event["loop"] = Json(loops_completed + 1);
-                event["iteration"] = Json(static_cast<int>(processed + 1));
-                if (!tag_filter.empty()) {
-                    JsonArray requested;
-                    requested.reserve(tag_filter.size());
-                    for (const auto& tag : tag_filter) {
-                        requested.emplace_back(Json(tag));
-                    }
-                    event["requested_tags"] = Json(requested);
-                }
-                if (!teacher.route.empty()) {
-                    event["teacher_route"] = Json(teacher.route);
-                }
-                if (!teacher.source_label.empty()) {
-                    event["teacher_source"] = Json(teacher.source_label);
-                }
-                if (!teacher.remote_error.empty()) {
-                    event["remote_error"] = Json(teacher.remote_error);
-                }
-                if (teacher.placeholder) {
-                    event["placeholder"] = Json(true);
-                }
-
-                std::string teacher_output = teacher.output;
-                if (teacher_output.empty()) {
-                    event["status"] = Json("teacher_unavailable");
-                    ++unavailable;
-                } else {
-                    std::string teacher_source = teacher.source_label;
-                    if (teacher_source.empty()) {
-                        if (teacher.route == "remote") {
-                            teacher_source = m_chat_route.empty() ? "remote_teacher" : m_chat_route;
-                        } else if (teacher.route == "local") {
-                            teacher_source = "local_student";
-                        } else {
-                            teacher_source = "fallback_teacher";
-                        }
-                    }
-
-                    std::string prompt_hash;
-                    if (force_new) {
-                        std::ostringstream hash_seed;
-                        hash_seed << prompt << "::selfloop::" << loops_completed << ':' << processed;
-                        prompt_hash = compute_prompt_hash(hash_seed.str());
-                    } else {
-                        prompt_hash = compute_prompt_hash(prompt);
-                    }
-
-                    std::string curated_source = teacher_source;
-                    if (force_new) {
-                        std::ostringstream tagged_source;
-                        tagged_source << teacher_source << "::selfloop::" << (loops_completed + 1) << ':' << (processed + 1);
-                        curated_source = tagged_source.str();
-                    }
-
-                    auto curated = m_learner->ingest(prompt, teacher_output, Json(), prompt_hash, curated_source);
-                    if (!curated) {
-                        event["status"] = Json("skipped");
-                        ++skipped;
-                    } else {
-                        if (!curated->semantic_tags.empty()) {
-                            JsonArray sample_tags;
-                            sample_tags.reserve(curated->semantic_tags.size());
-                            for (const auto& tag : curated->semantic_tags) {
-                                sample_tags.emplace_back(Json(tag));
-                            }
-                            event["semantic_tags"] = Json(sample_tags);
-                        }
-                        TrainingStats stats = m_learner->train_step(*curated);
-                        event["status"] = Json("trained");
-                        event["loss"] = Json(stats.loss);
-                        event["accuracy"] = Json(stats.accuracy);
-                        event["adapter_norm"] = Json(stats.adapter_norm);
-                        event["retrieval_hit_rate"] = Json(stats.retrieval_hit_rate);
-                        if (!stats.learning_tags.empty()) {
-                            JsonArray tags;
-                            tags.reserve(stats.learning_tags.size());
-                            for (const auto& tag : stats.learning_tags) {
-                                tags.emplace_back(Json(tag));
-                            }
-                            event["learning_tags"] = Json(tags);
-                        }
-                        if (!stats.learning_trace.empty()) {
-                            event["learning_trace"] = Json(stats.learning_trace);
-                        }
-                        loss_accumulator += stats.loss;
-                        accuracy_accumulator += stats.accuracy;
-                        ++trained;
-                    }
-                }
-
-                if (events.size() < 200) {
-                    events.emplace_back(Json(event));
-                } else {
-                    events_truncated = true;
-                }
-
-                ++processed;
-
-                if (delay_ms > 0 && processed < desired_total) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
-                }
-
-                auto now = std::chrono::steady_clock::now();
-                if (now - last_debug_update >= std::chrono::seconds(1)) {
-                    JsonObject debug;
-                    debug["stage"] = Json("train.self_loop");
-                    debug["processed"] = Json(static_cast<int>(std::min<std::size_t>(processed, static_cast<std::size_t>(std::numeric_limits<int>::max()))));
-                    debug["desired_total"] = Json(static_cast<int>(std::min<std::size_t>(desired_total, static_cast<std::size_t>(std::numeric_limits<int>::max()))));
-                    debug["trained"] = Json(trained);
-                    debug["skipped"] = Json(skipped);
-                    debug["teacher_unavailable"] = Json(unavailable);
-                    debug["loops_completed"] = Json(loops_completed);
-                    debug["loops_requested"] = Json(loops);
-                    if (trained > 0) {
-                        debug["average_loss"] = Json(loss_accumulator / static_cast<double>(trained));
-                        debug["average_accuracy"] = Json(accuracy_accumulator / static_cast<double>(trained));
-                    }
-                    m_bridge.call("debug.update", Json(debug));
-                    last_debug_update = now;
-                }
-            }
-
-            ++loops_completed;
-        }
-
-        std::ostringstream summary;
-        summary << "Self-learning processed " << processed << " prompt" << (processed == 1 ? "" : "s")
-                << " (trained=" << trained
-                << ", skipped=" << skipped
-                << ", teacher_unavailable=" << unavailable << ")";
-
-        JsonObject payload;
-        payload["output"] = Json(summary.str());
-        payload["loops_requested"] = Json(loops);
-        payload["loops_completed"] = Json(loops_completed);
-        payload["processed"] = Json(static_cast<int>(processed));
-        payload["trained"] = Json(trained);
-        payload["skipped"] = Json(skipped);
-        payload["teacher_unavailable"] = Json(unavailable);
-        if (trained > 0) {
-            payload["average_loss"] = Json(loss_accumulator / static_cast<double>(trained));
-            payload["average_accuracy"] = Json(accuracy_accumulator / static_cast<double>(trained));
-        }
-        if (!tag_filter.empty()) {
-            JsonArray tags_json;
-            tags_json.reserve(tag_filter.size());
-            for (const auto& tag : tag_filter) {
-                tags_json.emplace_back(Json(tag));
-            }
-            payload["requested_tags"] = Json(tags_json);
-        }
-        if (!events.empty()) {
-            payload["events"] = Json(events);
-            if (events_truncated) {
-                payload["events_truncated"] = Json(true);
-            }
-        }
-
-        return payload;
-    }
-
     if (request.method == "eval.canary") {
         TrainingStats stats = m_learner->evaluate_canary();
         JsonObject payload;
@@ -1583,6 +1284,412 @@ void Service::handle_trainer_fit(const MCPBridge::Request& request, std::ostream
     payload["output"] = Json(summary.str());
     payload["final_loss"] = Json(final_loss);
     payload["steps"] = Json(final_step);
+
+    m_bridge.send_response(out, request.id, Json(payload));
+    out.flush();
+}
+
+void Service::handle_train_self_loop(const MCPBridge::Request& request, std::ostream& out) {
+    if (!m_learner) {
+        throw std::runtime_error("learner unavailable");
+    }
+
+    const JsonObject& params = request.params.is_object() ? request.params.as_object() : JsonObject{};
+
+    auto parse_int = [](const Json& value, int fallback) {
+        return std::visit(
+            [fallback](const auto& raw) -> int {
+                using T = std::decay_t<decltype(raw)>;
+                if constexpr (std::is_same_v<T, double>) {
+                    return static_cast<int>(raw);
+                } else if constexpr (std::is_same_v<T, bool>) {
+                    return raw ? 1 : 0;
+                } else if constexpr (std::is_same_v<T, std::string>) {
+                    try {
+                        std::size_t idx = 0;
+                        int parsed = std::stoi(raw, &idx);
+                        if (idx == raw.size()) {
+                            return parsed;
+                        }
+                    } catch (...) {
+                    }
+                    return fallback;
+                } else {
+                    return fallback;
+                }
+            },
+            value.value());
+    };
+
+    auto parse_bool = [](const Json& value, bool fallback) {
+        return std::visit(
+            [fallback](const auto& raw) -> bool {
+                using T = std::decay_t<decltype(raw)>;
+                if constexpr (std::is_same_v<T, bool>) {
+                    return raw;
+                } else if constexpr (std::is_same_v<T, double>) {
+                    return raw != 0.0;
+                } else if constexpr (std::is_same_v<T, std::string>) {
+                    std::string lowered = raw;
+                    std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char ch) {
+                        return static_cast<char>(std::tolower(ch));
+                    });
+                    if (lowered == "true" || lowered == "1" || lowered == "yes") {
+                        return true;
+                    }
+                    if (lowered == "false" || lowered == "0" || lowered == "no") {
+                        return false;
+                    }
+                    return fallback;
+                } else {
+                    return fallback;
+                }
+            },
+            value.value());
+    };
+
+    int loops = 1;
+    int delay_ms = 0;
+    bool shuffle = false;
+    bool force_new = false;
+    int limit = 0;
+
+    if (auto it = params.find("loops"); it != params.end()) {
+        loops = parse_int(it->second, loops);
+    }
+    if (auto it = params.find("delay_ms"); it != params.end()) {
+        delay_ms = parse_int(it->second, delay_ms);
+    }
+    if (auto it = params.find("shuffle"); it != params.end()) {
+        shuffle = parse_bool(it->second, shuffle);
+    }
+    if (auto it = params.find("force_new"); it != params.end()) {
+        force_new = parse_bool(it->second, force_new);
+    }
+    if (auto it = params.find("limit"); it != params.end()) {
+        limit = parse_int(it->second, limit);
+    }
+
+    std::vector<std::string> tag_filter;
+    if (auto it = params.find("tags"); it != params.end()) {
+        tag_filter = parse_tag_filter(it->second);
+    }
+
+    loops = std::clamp(loops, 1, 1000);
+    delay_ms = std::clamp(delay_ms, 0, 60000);
+    if (limit < 0) {
+        limit = 0;
+    }
+
+    std::vector<std::string> prompts = load_self_learning_prompts(*m_learner, tag_filter);
+    if (prompts.empty()) {
+        if (!tag_filter.empty()) {
+            throw std::runtime_error("no prompts available for requested tags");
+        }
+        throw std::runtime_error("no prompts available for self-learning");
+    }
+
+    const std::size_t max_total = 10000;
+    std::size_t desired_total = static_cast<std::size_t>(loops) * prompts.size();
+    if (limit > 0) {
+        desired_total = std::min<std::size_t>(desired_total, static_cast<std::size_t>(limit));
+    }
+    desired_total = std::min(desired_total, max_total);
+    if (desired_total == 0) {
+        desired_total = std::min<std::size_t>(prompts.size(), max_total);
+    }
+
+    auto make_tag_array = [](const std::vector<std::string>& tags) {
+        JsonArray arr;
+        arr.reserve(tags.size());
+        for (const auto& tag : tags) {
+            arr.emplace_back(Json(tag));
+        }
+        return arr;
+    };
+
+    auto emit_info = [&](std::string message, std::function<void(JsonObject&)> enrich = {}) {
+        JsonObject event;
+        event["event"] = Json("info");
+        event["label"] = Json("auto");
+        if (!message.empty()) {
+            event["message"] = Json(std::move(message));
+        }
+        if (enrich) {
+            enrich(event);
+        }
+        out << Json(event).dump() << '\n';
+        out.flush();
+    };
+
+    auto emit_batch = [&](int step, std::function<void(JsonObject&)> enrich) {
+        JsonObject event;
+        event["event"] = Json("batch");
+        event["label"] = Json("auto");
+        event["step"] = Json(step);
+        if (enrich) {
+            enrich(event);
+        }
+        out << Json(event).dump() << '\n';
+        out.flush();
+    };
+
+    std::ostringstream start;
+    start << "Starting self-learning loop: prompts=" << prompts.size()
+          << ", loops=" << loops
+          << ", shuffle=" << (shuffle ? "true" : "false")
+          << ", force_new=" << (force_new ? "true" : "false");
+    if (limit > 0) {
+        start << ", limit=" << limit;
+    }
+    if (delay_ms > 0) {
+        start << ", delay_ms=" << delay_ms;
+    }
+    if (!tag_filter.empty()) {
+        start << ", tags=";
+        for (std::size_t i = 0; i < tag_filter.size(); ++i) {
+            if (i != 0) {
+                start << ',';
+            }
+            start << tag_filter[i];
+        }
+    }
+    emit_info(start.str(), [&](JsonObject& payload) {
+        payload["loops"] = Json(loops);
+        payload["delay_ms"] = Json(delay_ms);
+        payload["shuffle"] = Json(shuffle);
+        payload["force_new"] = Json(force_new);
+        payload["prompts"] = Json(static_cast<int>(prompts.size()));
+        if (limit > 0) {
+            payload["limit"] = Json(limit);
+        }
+        if (!tag_filter.empty()) {
+            payload["tags"] = Json(make_tag_array(tag_filter));
+        }
+    });
+
+    std::vector<std::size_t> order(prompts.size());
+    std::iota(order.begin(), order.end(), std::size_t{0});
+
+    std::size_t processed = 0;
+    int loops_completed = 0;
+    int trained = 0;
+    int skipped = 0;
+    int unavailable = 0;
+    double loss_accumulator = 0.0;
+    double accuracy_accumulator = 0.0;
+    bool events_truncated = false;
+
+    JsonArray events;
+    events.reserve(std::min<std::size_t>(desired_total, std::size_t{200}));
+
+    std::mt19937 rng = make_rng();
+    auto last_debug_update = std::chrono::steady_clock::now();
+
+    while (processed < desired_total && loops_completed < loops) {
+        if (shuffle) {
+            std::shuffle(order.begin(), order.end(), rng);
+        }
+
+        for (std::size_t index : order) {
+            if (processed >= desired_total) {
+                break;
+            }
+
+            const std::string& prompt = prompts[index];
+            TeacherFetchOutcome teacher = fetch_teacher_output(*m_learner, m_bridge, prompt, Json(), m_chat_route);
+
+            JsonObject event;
+            event["prompt"] = Json(prompt);
+            event["loop"] = Json(loops_completed + 1);
+            event["iteration"] = Json(static_cast<int>(processed + 1));
+            if (!tag_filter.empty()) {
+                event["requested_tags"] = Json(make_tag_array(tag_filter));
+            }
+            if (!teacher.route.empty()) {
+                event["teacher_route"] = Json(teacher.route);
+            }
+            if (!teacher.source_label.empty()) {
+                event["teacher_source"] = Json(teacher.source_label);
+            }
+            if (!teacher.remote_error.empty()) {
+                event["remote_error"] = Json(teacher.remote_error);
+            }
+            if (teacher.placeholder) {
+                event["placeholder"] = Json(true);
+            }
+
+            const int step_index = static_cast<int>(processed + 1);
+            std::string teacher_output = teacher.output;
+            if (teacher_output.empty()) {
+                event["status"] = Json("teacher_unavailable");
+                ++unavailable;
+                emit_info(
+                    "Step " + std::to_string(step_index) + ": teacher unavailable",
+                    [&](JsonObject& payload) {
+                        payload["step"] = Json(step_index);
+                        payload["status"] = Json("teacher_unavailable");
+                        if (!teacher.route.empty()) {
+                            payload["route"] = Json(teacher.route);
+                        }
+                        if (!teacher.remote_error.empty()) {
+                            payload["remote_error"] = Json(teacher.remote_error);
+                        }
+                    });
+            } else {
+                std::string teacher_source = teacher.source_label;
+                if (teacher_source.empty()) {
+                    if (teacher.route == "remote") {
+                        teacher_source = m_chat_route.empty() ? "remote_teacher" : m_chat_route;
+                    } else if (teacher.route == "local") {
+                        teacher_source = "local_student";
+                    } else {
+                        teacher_source = "fallback_teacher";
+                    }
+                }
+
+                std::string prompt_hash;
+                if (force_new) {
+                    std::ostringstream hash_seed;
+                    hash_seed << prompt << "::selfloop::" << loops_completed << ':' << processed;
+                    prompt_hash = compute_prompt_hash(hash_seed.str());
+                } else {
+                    prompt_hash = compute_prompt_hash(prompt);
+                }
+
+                std::string curated_source = teacher_source;
+                if (force_new) {
+                    std::ostringstream tagged_source;
+                    tagged_source << teacher_source << "::selfloop::" << (loops_completed + 1) << ':' << (processed + 1);
+                    curated_source = tagged_source.str();
+                }
+
+                auto curated = m_learner->ingest(prompt, teacher_output, Json(), prompt_hash, curated_source);
+                if (!curated) {
+                    event["status"] = Json("skipped");
+                    ++skipped;
+                    emit_info(
+                        "Step " + std::to_string(step_index) + ": sample skipped by curator",
+                        [&](JsonObject& payload) {
+                            payload["step"] = Json(step_index);
+                            payload["status"] = Json("skipped");
+                            if (!teacher.route.empty()) {
+                                payload["route"] = Json(teacher.route);
+                            }
+                            if (!teacher_source.empty()) {
+                                payload["teacher_source"] = Json(teacher_source);
+                            }
+                        });
+                } else {
+                    if (!curated->semantic_tags.empty()) {
+                        JsonArray sample_tags;
+                        sample_tags.reserve(curated->semantic_tags.size());
+                        for (const auto& tag : curated->semantic_tags) {
+                            sample_tags.emplace_back(Json(tag));
+                        }
+                        event["semantic_tags"] = Json(sample_tags);
+                    }
+                    TrainingStats stats = m_learner->train_step(*curated);
+                    event["status"] = Json("trained");
+                    event["loss"] = Json(stats.loss);
+                    event["accuracy"] = Json(stats.accuracy);
+                    event["adapter_norm"] = Json(stats.adapter_norm);
+                    event["retrieval_hit_rate"] = Json(stats.retrieval_hit_rate);
+                    if (!stats.learning_tags.empty()) {
+                        JsonArray tags;
+                        tags.reserve(stats.learning_tags.size());
+                        for (const auto& tag : stats.learning_tags) {
+                            tags.emplace_back(Json(tag));
+                        }
+                        event["learning_tags"] = Json(tags);
+                    }
+                    if (!stats.learning_trace.empty()) {
+                        event["learning_trace"] = Json(stats.learning_trace);
+                    }
+                    loss_accumulator += stats.loss;
+                    accuracy_accumulator += stats.accuracy;
+                    ++trained;
+
+                    emit_batch(step_index, [&](JsonObject& payload) {
+                        payload["loss"] = Json(stats.loss);
+                        payload["accuracy"] = Json(stats.accuracy);
+                        payload["status"] = Json("trained");
+                        if (!teacher.route.empty()) {
+                            payload["route"] = Json(teacher.route);
+                        }
+                        if (!teacher_source.empty()) {
+                            payload["teacher_source"] = Json(teacher_source);
+                        }
+                        if (!tag_filter.empty()) {
+                            payload["requested_tags"] = Json(make_tag_array(tag_filter));
+                        }
+                    });
+                }
+            }
+
+            if (events.size() < 200) {
+                events.emplace_back(Json(event));
+            } else {
+                events_truncated = true;
+            }
+
+            ++processed;
+
+            if (delay_ms > 0 && processed < desired_total) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+            }
+
+            auto now = std::chrono::steady_clock::now();
+            if (now - last_debug_update >= std::chrono::seconds(1)) {
+                JsonObject debug;
+                debug["stage"] = Json("train.self_loop");
+                debug["processed"] = Json(static_cast<int>(std::min<std::size_t>(processed, static_cast<std::size_t>(std::numeric_limits<int>::max()))));
+                debug["desired_total"] = Json(static_cast<int>(std::min<std::size_t>(desired_total, static_cast<std::size_t>(std::numeric_limits<int>::max()))));
+                debug["trained"] = Json(trained);
+                debug["skipped"] = Json(skipped);
+                debug["teacher_unavailable"] = Json(unavailable);
+                debug["loops_completed"] = Json(loops_completed);
+                debug["loops_requested"] = Json(loops);
+                if (trained > 0) {
+                    debug["average_loss"] = Json(loss_accumulator / static_cast<double>(trained));
+                    debug["average_accuracy"] = Json(accuracy_accumulator / static_cast<double>(trained));
+                }
+                m_bridge.call("debug.update", Json(debug));
+                last_debug_update = now;
+            }
+        }
+
+        ++loops_completed;
+    }
+
+    std::ostringstream summary;
+    summary << "Self-learning processed " << processed << " prompt" << (processed == 1 ? "" : "s")
+            << " (trained=" << trained
+            << ", skipped=" << skipped
+            << ", teacher_unavailable=" << unavailable << ")";
+
+    JsonObject payload;
+    payload["label"] = Json("auto");
+    payload["output"] = Json(summary.str());
+    payload["loops_requested"] = Json(loops);
+    payload["loops_completed"] = Json(loops_completed);
+    payload["processed"] = Json(static_cast<int>(processed));
+    payload["trained"] = Json(trained);
+    payload["skipped"] = Json(skipped);
+    payload["teacher_unavailable"] = Json(unavailable);
+    if (trained > 0) {
+        payload["average_loss"] = Json(loss_accumulator / static_cast<double>(trained));
+        payload["average_accuracy"] = Json(accuracy_accumulator / static_cast<double>(trained));
+    }
+    if (!tag_filter.empty()) {
+        payload["requested_tags"] = Json(make_tag_array(tag_filter));
+    }
+    if (!events.empty()) {
+        payload["events"] = Json(events);
+        if (events_truncated) {
+            payload["events_truncated"] = Json(true);
+        }
+    }
 
     m_bridge.send_response(out, request.id, Json(payload));
     out.flush();
