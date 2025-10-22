@@ -78,6 +78,12 @@ automatic `train.step`, allowing the student model to learn from the remote
 teacher in real time. The console prints a short status message after each
 generation summarizing whether the update succeeded.
 
+Need faster convergence when testing LM Studio? Export
+`ALMONDAI_SEED_PROFILE=compact` before launching the runtime to load the concise
+English primer, then set either `ALMONDAI_FAST_LEARNING=1` or
+`ALMONDAI_LEARNING_RATE=<value>` so the decoder takes larger updates with every
+remote reply.
+
 You can still override the endpoint/model manually if you host LM Studio on a
 different port or want to address a specific model ID. Supplying an API key is
 optional because the local server does not require authentication.

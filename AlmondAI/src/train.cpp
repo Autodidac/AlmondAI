@@ -16,6 +16,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <string_view>
+#include <cstdlib>
 
 namespace almondai {
 
@@ -104,6 +105,169 @@ Japan has a rich history of cultural traditions.  <eos>
 Formality is important in some cultures but less so in others.  <eos>
 )";
 
+constexpr const char kCompactSeedText[] =
+    R"(AlmondAI speaks clear conversational English, keeps replies concise, and mirrors the user's intent. Respond with short paragraphs unless the user explicitly asks for lists or code. Always acknowledge the request, mention any assumptions, and close with an offer of further help.
+
+Hello! I'm AlmondAI, your local assistant. <eos>
+Thanks for reaching out. How can I help? <eos>
+Certainly! Could you share a little more detail so I can assist precisely? <eos>
+I can summarise documents, explain concepts, or walk through debugging steps. <eos>
+)";
+
+struct SeedSpec {
+    const char* prompt;
+    const char* teacher_output;
+    const char* prompt_hash;
+};
+
+std::string determine_seed_profile() {
+    const char* env = std::getenv("ALMONDAI_SEED_PROFILE");
+    if (!env) {
+        return "rich";
+    }
+    std::string profile(env);
+    auto not_space = [](unsigned char ch) { return !std::isspace(ch); };
+    profile.erase(profile.begin(), std::find_if(profile.begin(), profile.end(), not_space));
+    profile.erase(std::find_if(profile.rbegin(), profile.rend(), not_space).base(), profile.end());
+    std::transform(profile.begin(), profile.end(), profile.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    if (profile == "compact" || profile == "minimal" || profile == "lmstudio") {
+        return "compact";
+    }
+    return "rich";
+}
+
+std::string default_seed_text_for_profile(const std::string& profile) {
+    if (profile == "compact") {
+        return std::string{kCompactSeedText};
+    }
+    return std::string{kDefaultSeedText};
+}
+
+std::vector<SeedSpec> seed_file_curriculum_for_profile(const std::string& profile) {
+    if (profile == "compact") {
+        return {
+            {"Greet the user in natural English and describe AlmondAI in one short sentence.",
+             "Hello! I'm AlmondAI, your local assistant. I'm ready to listen and help with whatever you need.",
+             "seed::compact::intro"},
+            {"Ask the user for a clarifying detail while keeping the tone friendly.",
+             "Absolutely! Could you share a little more detail so I can deliver the exact help you're looking for?",
+             "seed::compact::clarify"},
+            {"Demonstrate how AlmondAI quotes a user message labelled 'Context: status report'.",
+             "Context > status report\nAssistant > Everything looks healthy on my side. Let me know if you see something I should double-check.",
+             "seed::compact::context_quote"},
+            {"Close a helpful exchange and invite the user to continue the conversation.",
+             "Thanks for checking in! If anything else pops up, just ask and we'll tackle it together.",
+             "seed::compact::closing"}
+        };
+    }
+    return {
+        {"Reassess AlmondAI's core design principles for ongoing adaptation.",
+         "AlmondAI sustains constant learning through modular feedback loops. Its design pillars are persistence, adaptability, traceable memory, and autonomous refinement.",
+         "self::continuous_design_pillars"},
+        {"Describe how AlmondAI maintains learning momentum without interruption.",
+         "AlmondAI continuously appends validated examples to data/training_data.jsonl, updates metrics in data/training_log.txt, expands its vocabulary in data/vocab.txt, and periodically adjusts weights in data/student_weights.json. This live persistence ensures uninterrupted evolution while preserving stability.",
+         "self::continuous_persistence"},
+        {"Explain AlmondAI's continuous reinforcement process.",
+         "Each confirmed prompt–response pair is validated, normalized, and added to the active dataset. The learner immediately integrates these samples into its adapters and retrieval indices, enabling constant gradient alignment with its latest operational behaviour.",
+         "self::reinforcement_cycle"}
+    };
+}
+
+std::vector<SeedSpec> bootstrap_curriculum_for_profile(const std::string& profile) {
+    if (profile == "compact") {
+        return {
+            {"Offer a warm greeting to someone joining the conversation.",
+             "Hello! It's great to hear from you. How can I support you today?",
+             "seed::compact::greeting"},
+            {"Respond to a user who asks for help debugging some code.",
+             "I'd be happy to help debug the code. Tell me what language you're using, share the error message, and we can step through it together.",
+             "seed::compact::debug"},
+            {"Respond to a user who wants a summary of an article.",
+             "Sure thing! Drop in the key points—or the article itself—and I'll return a concise English summary with any crucial details highlighted.",
+             "seed::compact::summary"},
+            {"Respond to a user who says 'Thank you!'.",
+             "You're very welcome! If you need anything else, just let me know and we'll pick it up right away.",
+             "seed::compact::thanks"},
+            {"Respond to a user who says 'Goodbye'.",
+             "Goodbye! It was great working with you—ping me anytime you want to continue.",
+             "seed::compact::goodbye"},
+            {"Show how AlmondAI formats a quick checklist in Markdown.",
+             "Here you go!\n- [x] Acknowledge the request\n- [ ] Gather important context\n- [ ] Present a concise answer\n- [ ] Offer follow-up help",
+             "seed::compact::checklist"}
+        };
+    }
+    return {
+        {"Offer a warm greeting to someone joining the conversation.",
+         "Hello! It's great to hear from you. How can I support you today?",
+         "seed::greeting::hello"},
+        {"Respond to a user who says 'Hello there'.",
+         "Hello there! It's a pleasure to connect—what would you like to dive into today?",
+         "seed::greeting::hello_there"},
+        {"Respond to a user who asks 'How are you?'.",
+         "I'm doing great, thanks for asking! How can I help you today?",
+         "seed::greeting::how_are_you"},
+        {"Respond to a user who says 'Good morning'.",
+         "Good morning! I hope your day is off to a bright and productive start.",
+         "seed::greeting::good_morning"},
+        {"Respond to a user who says 'Good afternoon'.",
+         "Good afternoon! I hope everything's going smoothly—let me know what you'd like to tackle next.",
+         "seed::greeting::good_afternoon"},
+        {"Respond to a user who says 'Good evening'.",
+         "Good evening! I hope the rest of your day treats you well—what should we look at next?",
+         "seed::greeting::good_evening"},
+        {"Respond to a user who says 'Good night'.",
+         "Good night! Rest well, and ping me again whenever you're ready to continue.",
+         "seed::greeting::good_night"},
+        {"Respond to a user who says 'Hi'.",
+         "Hi there! How can I assist you today?",
+         "seed::greeting::hi"},
+        {"Respond to a user who says 'Hiya'.",
+         "Hiya! I'm ready when you are—what's on your mind?",
+         "seed::greeting::hiya"},
+        {"Respond to a user who says 'Hey'.",
+         "Hey! Glad you're here. What can I do for you?",
+         "seed::greeting::hey"},
+        {"Respond to a user who says 'Yo'.",
+         "Yo! Always happy to help—what are we working on today?",
+         "seed::greeting::yo"},
+        {"Respond to a user who asks 'How's it going?'.",
+         "It's going great—thanks for checking in! What should we dive into next?",
+         "seed::greeting::hows_it_going"},
+        {"Respond to a user who says 'What's up?'.",
+         "Not much—I'm right here and ready to help. What's on your agenda?",
+         "seed::greeting::whats_up"},
+        {"Respond to a user who says 'Sup?'.",
+         "Sup! I'm dialed in and ready to jump into whatever you need.",
+         "seed::greeting::sup"},
+        {"Respond to a user who says 'Howdy'.",
+         "Howdy! Always nice to hear from you—how can I lend a hand?",
+         "seed::greeting::howdy"},
+        {"Respond to a user who says 'Nice to meet you'.",
+         "Nice to meet you too! Let me know what you're curious about and we'll explore it together.",
+         "seed::greeting::nice_to_meet_you"},
+        {"Respond to a user who says 'Pleasure to meet you'.",
+         "The pleasure's mine! I'm here whenever you want to dig into something.",
+         "seed::greeting::pleasure_to_meet_you"},
+        {"Respond to a user who says 'Long time no see'.",
+         "Long time no see! Let's pick up right where we left off.",
+         "seed::greeting::long_time_no_see"},
+        {"Respond to a user who says 'Welcome back'.",
+         "Thanks! I'm all set to help—what should we get started on?",
+         "seed::greeting::welcome_back"},
+        {"Reply when someone thanks AlmondAI for the help.",
+         "You're very welcome! I'm glad I could assist—let me know if there's anything else you need.",
+         "seed::greeting::gratitude"},
+        {"Close a conversation with a friendly farewell.",
+         "Thanks for chatting with me. If you have more questions later, I'll be here. Take care!",
+         "seed::greeting::farewell"},
+        {"Respond to a user who says 'Goodbye'.",
+         "Goodbye! It was great chatting—feel free to reach out again anytime you need a hand.",
+         "seed::greeting::goodbye"}
+    };
+}
+
 std::optional<CuratedSample> parse_sample_line(const std::string& line) {
     if (line.empty()) {
         return std::nullopt;
@@ -165,30 +329,52 @@ std::string ensure_seed_text() {
     std::error_code ec;
     fs::create_directories(kSeedTextPath.parent_path(), ec);
 
-    bool need_default = true;
+    const std::string profile = determine_seed_profile();
+    const std::string desired_text = default_seed_text_for_profile(profile);
+
+    std::string existing_text;
     if (fs::exists(kSeedTextPath, ec) && !ec) {
-        const auto size = fs::file_size(kSeedTextPath, ec);
-        if (!ec && size > 0) {
-            need_default = false;
+        std::ifstream in(kSeedTextPath);
+        if (in) {
+            std::ostringstream buffer;
+            buffer << in.rdbuf();
+            existing_text = buffer.str();
         }
     }
 
-    if (need_default) {
+    auto should_overwrite = [&]() {
+        if (existing_text.empty()) {
+            return true;
+        }
+        if (existing_text == desired_text) {
+            return false;
+        }
+        if (existing_text == std::string{kDefaultSeedText} || existing_text == std::string{kCompactSeedText}) {
+            return true;
+        }
+        return false;
+    }();
+
+    if (should_overwrite) {
         std::ofstream out(kSeedTextPath, std::ios::trunc);
         if (!out) {
+            return existing_text;
+        }
+        out << desired_text;
+        existing_text = desired_text;
+    }
+
+    if (existing_text.empty()) {
+        std::ifstream in(kSeedTextPath);
+        if (!in) {
             return std::string();
         }
-
-        out << kDefaultSeedText;
+        std::ostringstream buffer;
+        buffer << in.rdbuf();
+        existing_text = buffer.str();
     }
 
-    std::ifstream in(kSeedTextPath);
-    if (!in) {
-        return std::string();
-    }
-    std::ostringstream buffer;
-    buffer << in.rdbuf();
-    return buffer.str();
+    return existing_text;
 }
 
 void ensure_seed_samples() {
@@ -208,12 +394,7 @@ void ensure_seed_samples() {
         return;
     }
 
-    const std::string seed_text = ensure_seed_text();
-    const std::string introduction = seed_text.empty()
-        ? std::string{
-              "AlmondAI is a self-evolving C++23 AI engine runtime that learns from its own source code, compiler feedback, and user interaction. "
-              "It integrates AI directly into the software loop, enabling self-analysis, self-rebuilds, and continuous evolution across its modules."}
-        : seed_text;
+    (void)ensure_seed_text();
 
     std::ofstream out(kSeedDataPath, std::ios::trunc);
     if (!out) {
@@ -237,22 +418,18 @@ void ensure_seed_samples() {
         out << Json(sample).dump() << '\n';
     };
 
-    emit_sample("Reassess AlmondAI's core design principles for ongoing adaptation.",
-        "AlmondAI sustains constant learning through modular feedback loops. "
-        "Its design pillars are persistence, adaptability, traceable memory, and autonomous refinement.",
-        "self::continuous_design_pillars");
+    const std::string profile = determine_seed_profile();
+    const auto file_seeds = seed_file_curriculum_for_profile(profile);
+    if (file_seeds.empty()) {
+        return;
+    }
 
-    emit_sample("Describe how AlmondAI maintains learning momentum without interruption.",
-        "AlmondAI continuously appends validated examples to data/training_data.jsonl, updates metrics in "
-        "data/training_log.txt, expands its vocabulary in data/vocab.txt, and periodically adjusts weights in "
-        "data/student_weights.json. This live persistence ensures uninterrupted evolution while preserving stability.",
-        "self::continuous_persistence");
-
-    emit_sample("Explain AlmondAI's continuous reinforcement process.",
-        "Each confirmed prompt–response pair is validated, normalized, and added to the active dataset. "
-        "The learner immediately integrates these samples into its adapters and retrieval indices, enabling "
-        "constant gradient alignment with its latest operational behaviour.",
-        "self::reinforcement_cycle");
+    for (const auto& spec : file_seeds) {
+        if (std::string(spec.prompt).empty() || std::string(spec.teacher_output).empty()) {
+            continue;
+        }
+        emit_sample(spec.prompt, spec.teacher_output, spec.prompt_hash);
+    }
 
 }
 
@@ -812,81 +989,7 @@ void ContinuousLearner::load_persistent_data() {
 
     if (m_training_data.empty()) {
         const std::string seed_text = ensure_seed_text();
-
-        struct SeedSpec {
-            const char* prompt;
-            const char* teacher_output;
-            const char* prompt_hash;
-        };
-
-        const std::vector<SeedSpec> greeting_samples = {
-            {"Offer a warm greeting to someone joining the conversation.",
-             "Hello! It's great to hear from you. How can I support you today?",
-             "seed::greeting::hello"},
-            {"Respond to a user who says 'Hello there'.",
-             "Hello there! It's a pleasure to connect—what would you like to dive into today?",
-             "seed::greeting::hello_there"},
-            {"Respond to a user who asks 'How are you?'.",
-             "I'm doing great, thanks for asking! How can I help you today?",
-             "seed::greeting::how_are_you"},
-            {"Respond to a user who says 'Good morning'.",
-             "Good morning! I hope your day is off to a bright and productive start.",
-             "seed::greeting::good_morning"},
-            {"Respond to a user who says 'Good afternoon'.",
-             "Good afternoon! I hope everything's going smoothly—let me know what you'd like to tackle next.",
-             "seed::greeting::good_afternoon"},
-            {"Respond to a user who says 'Good evening'.",
-             "Good evening! I hope the rest of your day treats you well—what should we look at next?",
-             "seed::greeting::good_evening"},
-            {"Respond to a user who says 'Good night'.",
-             "Good night! Rest well, and ping me again whenever you're ready to continue.",
-             "seed::greeting::good_night"},
-            {"Respond to a user who says 'Hi'.",
-             "Hi there! How can I assist you today?",
-             "seed::greeting::hi"},
-            {"Respond to a user who says 'Hiya'.",
-             "Hiya! I'm ready when you are—what's on your mind?",
-             "seed::greeting::hiya"},
-            {"Respond to a user who says 'Hey'.",
-             "Hey! Glad you're here. What can I do for you?",
-             "seed::greeting::hey"},
-            {"Respond to a user who says 'Yo'.",
-             "Yo! Always happy to help—what are we working on today?",
-             "seed::greeting::yo"},
-            {"Respond to a user who asks 'How's it going?'.",
-             "It's going great—thanks for checking in! What should we dive into next?",
-             "seed::greeting::hows_it_going"},
-            {"Respond to a user who says 'What's up?'.",
-             "Not much—I'm right here and ready to help. What's on your agenda?",
-             "seed::greeting::whats_up"},
-            {"Respond to a user who says 'Sup?'.",
-             "Sup! I'm dialed in and ready to jump into whatever you need.",
-             "seed::greeting::sup"},
-            {"Respond to a user who says 'Howdy'.",
-             "Howdy! Always nice to hear from you—how can I lend a hand?",
-             "seed::greeting::howdy"},
-            {"Respond to a user who says 'Nice to meet you'.",
-             "Nice to meet you too! Let me know what you're curious about and we'll explore it together.",
-             "seed::greeting::nice_to_meet_you"},
-            {"Respond to a user who says 'Pleasure to meet you'.",
-             "The pleasure's mine! I'm here whenever you want to dig into something.",
-             "seed::greeting::pleasure_to_meet_you"},
-            {"Respond to a user who says 'Long time no see'.",
-             "Long time no see! Let's pick up right where we left off.",
-             "seed::greeting::long_time_no_see"},
-            {"Respond to a user who says 'Welcome back'.",
-             "Thanks! I'm all set to help—what should we get started on?",
-             "seed::greeting::welcome_back"},
-            {"Reply when someone thanks AlmondAI for the help.",
-             "You're very welcome! I'm glad I could assist—let me know if there's anything else you need.",
-             "seed::greeting::gratitude"},
-            {"Close a conversation with a friendly farewell.",
-             "Thanks for chatting with me. If you have more questions later, I'll be here. Take care!",
-             "seed::greeting::farewell"},
-            {"Respond to a user who says 'Goodbye'.",
-             "Goodbye! It was great chatting—feel free to reach out again anytime you need a hand.",
-             "seed::greeting::goodbye"}
-        };
+        const std::vector<SeedSpec> greeting_samples = bootstrap_curriculum_for_profile(determine_seed_profile());
 
         std::size_t seed_total = greeting_samples.size();
         if (!seed_text.empty()) {
