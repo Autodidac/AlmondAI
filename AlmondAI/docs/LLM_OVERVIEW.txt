@@ -18,16 +18,21 @@ Subsystem atlas
 * **AdapterManager** and **Adapter** (`adapter.cpp` / `adapter.hpp`) register
   LoRA-style adapters, swap them in and out, and keep per-adapter gradient
   statistics used in health checks.
-* **WordTokenizer** (`tokenizer_word.cpp` / `tokenizer_word.hpp`) exposes
-  whitespace tokenisation, vocabulary growth, and persistence to
-  `data/vocab.txt`. When the vocabulary grows it signals the student to resize
-  its projection matrix.
+* **WordTokenizer** (`tokenizer_word.cpp` / `tokenizer_word.hpp`) streams UTF-8
+  code points from training prompts and replies, deduplicates tokens on the fly,
+  and persists the quoted vocabulary to `data/vocab.txt`. Whenever the
+  vocabulary grows it signals the student to resize its projection matrix and
+  saves the refreshed weights.
 * **DataCurator** (`ingest.cpp` / `ingest.hpp`) filters prompts, deduplicates by
   `(prompt_hash, teacher_source, teacher_output)`, records preference pairs, and
   enforces guard-rails before training data is accepted.
 * **RetrievalIndex** (`retrieval.cpp` / `retrieval.hpp`) stores curated samples
   for retrieval-augmented generation. Queries return scored hits and track a hit
   rate that feeds into training telemetry.
+* **ContinuousLearner::consume_training_data_for_vocab** (`train.cpp`) scans the
+  JSONL training corpus on start-up to rebuild the tokenizer vocabulary,
+  deduplicate tokens, and resize the student weights before samples are loaded
+  into memory.
 * **Evaluator** (`eval.cpp` / `eval.hpp`) replays a canary set to produce loss
   and accuracy signals that catch regressions during long runs.
 * **PolicyGovernor** (`governor.cpp` / `governor.hpp`) double-checks curated
@@ -64,9 +69,10 @@ nor a remote teacher can answer.
 Continuous learning loop
 ------------------------
 1. **Ingestion** – `ContinuousLearner::ingest` forwards prompts to the
-   `DataCurator`, refreshes the tokenizer vocabulary, stores the curated sample
-   in training/eval buffers, updates the retrieval index, and writes the example
-   to `data/training_data.jsonl`.
+   `DataCurator`, refreshes the streaming tokenizer vocabulary via
+   `ingest_training_pair`, stores the curated sample in training/eval buffers,
+   updates the retrieval index, and writes the example to
+   `data/training_data.jsonl`.
 2. **Training** – `train_step` tokenises the prompt/teacher pair, runs a forward
    pass, forms a target distribution from the teacher tokens, applies
    cross-entropy against the student's softmax, backpropagates through the
@@ -94,7 +100,8 @@ Persistence and data files
 * `data/training_seed.jsonl` supplies starter conversations loaded on first run.
 * `data/student_weights.json` contains the decoder weights persisted after every
   training step.
-* `data/vocab.txt` is the serialised tokenizer vocabulary.
+* `data/vocab.txt` is the serialised tokenizer vocabulary written as
+  `std::quoted` UTF-8 tokens.
 * `data/training_log.txt` captures human-readable training, evaluation, and
   retrieval metrics. Each entry looks like `Step 42 | loss=0.1234 | accuracy=1 |
   adapter_norm=3.1415 | retrieval_hit_rate=0.75`.

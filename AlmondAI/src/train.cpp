@@ -618,12 +618,11 @@ std::optional<CuratedSample> ContinuousLearner::ingest(const std::string& prompt
         return std::nullopt;
     }
     curated->semantic_tags = compute_semantic_tags(*curated);
-    const std::size_t before_vocab = m_tokenizer.vocab().size();
-    m_tokenizer.build_vocab({curated->prompt, curated->teacher_output});
-    const std::size_t after_vocab = m_tokenizer.vocab().size();
-    if (after_vocab > before_vocab) {
-        m_student.base().resize_vocab(after_vocab);
+    const std::size_t added_tokens = m_tokenizer.ingest_training_pair(curated->prompt, curated->teacher_output);
+    if (added_tokens > 0) {
+        m_student.base().resize_vocab(m_tokenizer.vocab().size());
         m_tokenizer.save_vocab(kVocabPath.string());
+        m_student.base().save_weights(kWeightsPath.string());
     }
     m_training_data.push_back(*curated);
     const std::size_t index = m_training_data.size() - 1;
@@ -889,11 +888,11 @@ void ContinuousLearner::fit(const std::string& path,
             std::string line;
             while (std::getline(file, line)) {
                 if (auto sample = parse_sample_line(line)) {
-                    const std::size_t before_vocab = m_tokenizer.vocab().size();
-                    m_tokenizer.build_vocab({sample->prompt, sample->teacher_output});
-                    if (m_tokenizer.vocab().size() > before_vocab) {
+                    const std::size_t added = m_tokenizer.ingest_training_pair(sample->prompt, sample->teacher_output);
+                    if (added > 0) {
                         m_student.base().resize_vocab(m_tokenizer.vocab().size());
                         m_tokenizer.save_vocab(kVocabPath.string());
+                        m_student.base().save_weights(kWeightsPath.string());
                     }
                     dataset.push_back(*sample);
                 }
@@ -1007,6 +1006,13 @@ void ContinuousLearner::load_persistent_data() {
         fs::copy_file(kSeedDataPath, kTrainingDataPath, fs::copy_options::overwrite_existing, ec);
     }
 
+    if (fs::exists(kTrainingDataPath)) {
+        report_load_status("vocab", "Refreshing vocabulary from persisted training data");
+        consume_training_data_for_vocab(kTrainingDataPath);
+    } else {
+        report_load_status("vocab", "No training data available for vocabulary refresh");
+    }
+
     auto count_samples = [](const fs::path& path) -> std::size_t {
         if (!fs::exists(path)) {
             return 0;
@@ -1080,10 +1086,11 @@ void ContinuousLearner::load_persistent_data() {
             sample.provenance = Json(provenance);
             sample.semantic_tags = compute_semantic_tags(sample);
 
-            const std::size_t before_vocab = m_tokenizer.vocab().size();
-            m_tokenizer.build_vocab({sample.prompt, sample.teacher_output});
-            if (m_tokenizer.vocab().size() > before_vocab) {
+            const std::size_t added = m_tokenizer.ingest_training_pair(sample.prompt, sample.teacher_output);
+            if (added > 0) {
                 m_student.base().resize_vocab(m_tokenizer.vocab().size());
+                m_tokenizer.save_vocab(kVocabPath.string());
+                m_student.base().save_weights(kWeightsPath.string());
             }
 
             m_training_data.push_back(sample);
@@ -1156,6 +1163,42 @@ void ContinuousLearner::load_persistent_data() {
     report_load_status("ready", "Learner initialisation complete", m_training_data.size(), m_training_data.size());
 }
 
+void ContinuousLearner::consume_training_data_for_vocab(const std::filesystem::path& path) {
+    if (!std::filesystem::exists(path)) {
+        return;
+    }
+
+    std::ifstream file(path);
+    if (!file) {
+        return;
+    }
+
+    std::string line;
+    std::size_t processed = 0;
+    std::size_t added_tokens = 0;
+    while (std::getline(file, line)) {
+        if (line.empty()) {
+            continue;
+        }
+        if (auto sample = parse_sample_line(line)) {
+            added_tokens += m_tokenizer.ingest_training_pair(sample->prompt, sample->teacher_output);
+            ++processed;
+        }
+    }
+
+    if (added_tokens > 0) {
+        m_student.base().resize_vocab(m_tokenizer.vocab().size());
+        m_tokenizer.save_vocab(kVocabPath.string());
+        m_student.base().save_weights(kWeightsPath.string());
+    }
+
+    if (processed > 0) {
+        std::ostringstream detail;
+        detail << "Refreshed vocabulary from " << processed << " samples";
+        report_load_status("vocab", detail.str(), processed, processed);
+    }
+}
+
 void ContinuousLearner::load_samples_from_file(const std::filesystem::path& path,
                                                std::size_t total_samples_hint) {
     if (!std::filesystem::exists(path)) {
@@ -1208,10 +1251,11 @@ void ContinuousLearner::load_samples_from_file(const std::filesystem::path& path
         if (auto sample = parse_sample_line(line)) {
             CuratedSample sample_value = *sample;
             sample_value.semantic_tags = compute_semantic_tags(sample_value);
-            const std::size_t before_vocab = m_tokenizer.vocab().size();
-            m_tokenizer.build_vocab({sample_value.prompt, sample_value.teacher_output});
-            if (m_tokenizer.vocab().size() > before_vocab) {
+            const std::size_t added = m_tokenizer.ingest_training_pair(sample_value.prompt, sample_value.teacher_output);
+            if (added > 0) {
                 m_student.base().resize_vocab(m_tokenizer.vocab().size());
+                m_tokenizer.save_vocab(kVocabPath.string());
+                m_student.base().save_weights(kWeightsPath.string());
             }
             m_training_data.push_back(sample_value);
             CuratedSample& stored = m_training_data.back();

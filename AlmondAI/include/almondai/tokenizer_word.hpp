@@ -8,6 +8,7 @@
 #include <sstream>
 #include <locale>
 #include <mutex>
+#include <string_view>
 
 namespace almondai {
 
@@ -28,6 +29,10 @@ public:
 
     void build_vocab(const std::vector<std::string>& documents);
 
+    // Ingests a prompt/reply training pair directly into the vocabulary.
+    // Returns the number of new tokens that were added.
+    std::size_t ingest_training_pair(std::string_view prompt, std::string_view teacher_output);
+
     std::vector<int> encode(const std::string& text) const;
     std::string decode(const std::vector<int>& tokens) const;
 
@@ -45,8 +50,8 @@ private:
     mutable std::mutex m_mutex;
 
     std::string normalize(const std::string& token) const;
-    std::vector<std::string> tokenize(const std::string& text) const;
-    static bool is_delimiter(char32_t c);
+    void consume_text(std::string_view text, std::unordered_set<std::string>& newly_added);
+    static std::string codepoint_to_utf8(char32_t codepoint);
     void ensure_special_tokens();
 };
 

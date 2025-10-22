@@ -2,13 +2,12 @@
 
 #include <locale>
 #include <cctype>
-#include <algorithm>
 #include <sstream>
 #include <mutex>
-#include <cwctype> // Add this at the top if not already present
-#include <array>
 #include <unordered_set>
 #include <string_view>
+#include <iomanip>
+#include <array>
 
 namespace almondai {
 
@@ -17,90 +16,6 @@ constexpr const char* kSpecialPad = "<pad>";
 constexpr const char* kSpecialBos = "<bos>";
 constexpr const char* kSpecialEos = "<eos>";
 constexpr const char* kSpecialUnk = "<unk>";
-static constexpr std::string_view kCurlyApostrophe{"\xE2\x80\x99", 3};
-static constexpr std::string_view kCurlyOpenApostrophe{"\xE2\x80\x98", 3};
-
-std::string canonicalise_apostrophes(std::string_view token) {
-    std::string result;
-    result.reserve(token.size());
-    for (std::size_t i = 0; i < token.size();) {
-        const unsigned char ch = static_cast<unsigned char>(token[i]);
-        if (ch == 0xE2 && i + 2 < token.size()) {
-            const unsigned char next1 = static_cast<unsigned char>(token[i + 1]);
-            const unsigned char next2 = static_cast<unsigned char>(token[i + 2]);
-            if (next1 == 0x80 && (next2 == 0x98 || next2 == 0x99)) {
-                result.push_back('\'');
-                i += 3;
-                continue;
-            }
-        }
-        result.push_back(static_cast<char>(ch));
-        ++i;
-    }
-    return result;
-}
-
-bool attaches_to_previous(std::string_view token) {
-    static constexpr std::array<std::string_view, 11> kNoSpaceBefore = {
-        ".",
-        ",",
-        "!",
-        "?",
-        ";",
-        ":",
-        ")",
-        "]",
-        "}",
-        "...",
-        "?!",
-    };
-    if (std::find(kNoSpaceBefore.begin(), kNoSpaceBefore.end(), token) != kNoSpaceBefore.end()) {
-        return true;
-    }
-    if (!token.empty() && (token.front() == '\''
-                           || token.starts_with(kCurlyApostrophe)
-                           || token.starts_with(kCurlyOpenApostrophe))) {
-        return true;
-    }
-    return false;
-}
-
-bool attaches_to_next(std::string_view token) {
-    static constexpr std::array<std::string_view, 5> kNoSpaceAfter = {
-        "(",
-        "[",
-        "{",
-        "\"",
-        "'",
-    };
-    if (std::find(kNoSpaceAfter.begin(), kNoSpaceAfter.end(), token) != kNoSpaceAfter.end()) {
-        return true;
-    }
-    return token == kCurlyApostrophe || token == kCurlyOpenApostrophe;
-}
-
-bool is_whitespace(char32_t c) {
-    if (c <= 0x7F) {
-        switch (static_cast<char>(c)) {
-        case ' ': case '\t': case '\n': case '\r': case '\f': case '\v':
-            return true;
-        default:
-            break;
-        }
-    }
-    return ::iswspace(static_cast<wchar_t>(c)) != 0;
-}
-
-bool is_word_character(char32_t c) {
-    if (c == U'\'' || c == U'\u2019' || c == U'\u2018') {
-        return false;
-    }
-    if (c <= 0x7F) {
-        return std::isalnum(static_cast<unsigned char>(c)) != 0;
-    }
-    return ::iswalnum(static_cast<wchar_t>(c)) != 0;
-}
-
 void append_utf8(char32_t code, std::string& out) {
     if (code <= 0x7F) {
         out.push_back(static_cast<char>(code));
@@ -119,27 +34,27 @@ void append_utf8(char32_t code, std::string& out) {
     }
 }
 
-std::string build_punctuation_token(const std::u32string& buffer, std::size_t& index) {
-    std::string token;
-    append_utf8(buffer[index], token);
-    const char32_t current = buffer[index];
+std::string canonicalise_apostrophes(std::string_view token) {
+    static constexpr std::string_view kCurlyApostrophe{"\xE2\x80\x99", 3};
+    static constexpr std::string_view kCurlyOpenApostrophe{"\xE2\x80\x98", 3};
 
-    if (current == U'.') {
-        std::size_t lookahead = index + 1;
-        while (lookahead < buffer.size() && buffer[lookahead] == U'.') {
-            append_utf8(buffer[lookahead], token);
-            ++lookahead;
+    std::string result;
+    result.reserve(token.size());
+    for (std::size_t i = 0; i < token.size();) {
+        const unsigned char ch = static_cast<unsigned char>(token[i]);
+        if (ch == 0xE2 && i + 2 < token.size()) {
+            const unsigned char next1 = static_cast<unsigned char>(token[i + 1]);
+            const unsigned char next2 = static_cast<unsigned char>(token[i + 2]);
+            if (next1 == 0x80 && (next2 == 0x98 || next2 == 0x99)) {
+                result.push_back('\'');
+                i += 3;
+                continue;
+            }
         }
-        index = lookahead - 1;
-    } else if (current == U'?' && index + 1 < buffer.size() && buffer[index + 1] == U'!') {
-        ++index;
-        append_utf8(buffer[index], token);
-    } else if (current == U'!' && index + 1 < buffer.size() && buffer[index + 1] == U'?') {
-        ++index;
-        append_utf8(buffer[index], token);
+        result.push_back(static_cast<char>(ch));
+        ++i;
     }
-
-    return token;
+    return result;
 }
 }
 
@@ -222,25 +137,7 @@ std::string WordTokenizer::normalize(const std::string& token) const {
     return result;
 }
 
-bool WordTokenizer::is_delimiter(char32_t c) {
-    if (c <= 0x7F) {
-        switch (static_cast<char>(c)) {
-        case ' ': case '\t': case '\n': case '\r': case '\f': case '\v':
-        case '.': case ',': case ';': case ':': case '!': case '?': case '"':
-        case '(': case ')': case '[': case ']': case '{': case '}': case '<': case '>':
-        case '-': case '_': case '/': case '\\': case '|': case '@': case '#': case '$':
-        case '%': case '^': case '&': case '*': case '+': case '=':
-            return true;
-        default:
-            break;
-        }
-    }
-    return ::iswspace(static_cast<wchar_t>(c)) != 0;
-}
-
-std::vector<std::string> WordTokenizer::tokenize(const std::string& text) const {
-    std::u32string buffer;
-    buffer.reserve(text.size());
+void WordTokenizer::consume_text(std::string_view text, std::unordered_set<std::string>& newly_added) {
     const char* ptr = text.data();
     const char* end = text.data() + text.size();
     while (ptr < end) {
@@ -263,77 +160,45 @@ std::vector<std::string> WordTokenizer::tokenize(const std::string& text) const 
                    | (static_cast<unsigned char>(ptr[3]) & 0x3F);
             length = 4;
         } else {
-            // Invalid sequence, skip byte.
             ++ptr;
             continue;
         }
-        buffer.push_back(code);
+
+        std::string token = codepoint_to_utf8(code);
+        token = normalize(token);
+        if (!token.empty() && m_token_to_id.find(token) == m_token_to_id.end()) {
+            if (newly_added.insert(token).second) {
+                int id = static_cast<int>(m_id_to_token.size());
+                m_token_to_id[token] = id;
+                m_id_to_token.push_back(token);
+            }
+        }
         ptr += length;
     }
+}
 
-    std::vector<std::string> tokens;
-    std::string current;
-
-    auto flush_current = [&]() {
-        if (!current.empty()) {
-            tokens.push_back(normalize(current));
-            current.clear();
-        }
-    };
-
-    for (std::size_t i = 0; i < buffer.size(); ++i) {
-        const char32_t code = buffer[i];
-
-        if (code == U'\'' || code == U'\u2019' || code == U'\u2018') {
-            const bool prev_word = (i > 0) && is_word_character(buffer[i - 1]);
-            const bool next_word = (i + 1 < buffer.size()) && is_word_character(buffer[i + 1]);
-            if (prev_word && next_word) {
-                append_utf8(code, current);
-            } else {
-                flush_current();
-                std::string punctuation;
-                append_utf8(code, punctuation);
-                tokens.push_back(punctuation);
-            }
-            continue;
-        }
-
-        if (is_delimiter(code)) {
-            flush_current();
-            if (!is_whitespace(code)) {
-                std::size_t index = i;
-                std::string punctuation = build_punctuation_token(buffer, index);
-                tokens.push_back(punctuation);
-                i = index;
-            }
-            continue;
-        }
-
-        append_utf8(code, current);
-    }
-
-    flush_current();
-    return tokens;
+std::string WordTokenizer::codepoint_to_utf8(char32_t codepoint) {
+    std::string token;
+    append_utf8(codepoint, token);
+    return token;
 }
 
 void WordTokenizer::build_vocab(const std::vector<std::string>& documents) {
     std::scoped_lock lock(m_mutex);
     ensure_special_tokens();
-    std::unordered_set<std::string> seen;
+    std::unordered_set<std::string> newly_added;
     for (const auto& doc : documents) {
-        for (const auto& token : tokenize(doc)) {
-            if (token.empty()) {
-                continue;
-            }
-            if (m_token_to_id.find(token) == m_token_to_id.end()) {
-                if (seen.insert(token).second) {
-                    int id = static_cast<int>(m_id_to_token.size());
-                    m_token_to_id[token] = id;
-                    m_id_to_token.push_back(token);
-                }
-            }
-        }
+        consume_text(doc, newly_added);
     }
+}
+
+std::size_t WordTokenizer::ingest_training_pair(std::string_view prompt, std::string_view teacher_output) {
+    std::scoped_lock lock(m_mutex);
+    ensure_special_tokens();
+    std::unordered_set<std::string> newly_added;
+    consume_text(prompt, newly_added);
+    consume_text(teacher_output, newly_added);
+    return newly_added.size();
 }
 
 std::vector<int> WordTokenizer::encode(const std::string& text) const {
@@ -343,22 +208,47 @@ std::vector<int> WordTokenizer::encode(const std::string& text) const {
     if (it != m_token_to_id.end()) {
         tokens.push_back(it->second);
     }
-    for (const auto& token : tokenize(text)) {
+    const char* ptr = text.data();
+    const char* end = text.data() + text.size();
+    while (ptr < end) {
+        char32_t code = 0;
+        unsigned char lead = static_cast<unsigned char>(*ptr);
+        std::size_t length = 0;
+        if (lead < 0x80) {
+            code = lead;
+            length = 1;
+        } else if ((lead >> 5) == 0x6 && ptr + 1 < end) {
+            code = ((lead & 0x1F) << 6) | (static_cast<unsigned char>(ptr[1]) & 0x3F);
+            length = 2;
+        } else if ((lead >> 4) == 0xE && ptr + 2 < end) {
+            code = ((lead & 0x0F) << 12) | ((static_cast<unsigned char>(ptr[1]) & 0x3F) << 6)
+                   | (static_cast<unsigned char>(ptr[2]) & 0x3F);
+            length = 3;
+        } else if ((lead >> 3) == 0x1E && ptr + 3 < end) {
+            code = ((lead & 0x07) << 18) | ((static_cast<unsigned char>(ptr[1]) & 0x3F) << 12)
+                   | ((static_cast<unsigned char>(ptr[2]) & 0x3F) << 6)
+                   | (static_cast<unsigned char>(ptr[3]) & 0x3F);
+            length = 4;
+        } else {
+            ++ptr;
+            continue;
+        }
+        std::string token = normalize(codepoint_to_utf8(code));
         auto token_it = m_token_to_id.find(token);
         if (token_it == m_token_to_id.end()) {
             tokens.push_back(m_token_to_id.at(kSpecialUnk));
         } else {
             tokens.push_back(token_it->second);
         }
+        ptr += length;
     }
     tokens.push_back(m_token_to_id.at(kSpecialEos));
     return tokens;
 }
 
 std::string WordTokenizer::decode(const std::vector<int>& tokens) const {
-    std::ostringstream oss;
-    bool first = true;
-    bool suppress_space = false;
+    std::string result;
+    result.reserve(tokens.size());
     for (int token : tokens) {
         if (token < 0 || static_cast<std::size_t>(token) >= m_id_to_token.size()) {
             continue;
@@ -367,15 +257,12 @@ std::string WordTokenizer::decode(const std::vector<int>& tokens) const {
         if (word == kSpecialBos || word == kSpecialEos || word == kSpecialPad) {
             continue;
         }
-        const bool attach_prev = attaches_to_previous(word);
-        if (!first && !suppress_space && !attach_prev) {
-            oss << ' ';
-        }
-        first = false;
-        oss << word;
-        suppress_space = attaches_to_next(word);
+        // Tokens already carry spacing information because they represent
+        // individual Unicode code points. Appending each token verbatim
+        // faithfully reconstructs the input stream.
+        result.append(word);
     }
-    return oss.str();
+    return result;
 }
 
 int WordTokenizer::token_id(const std::string& token) const {
@@ -389,8 +276,8 @@ int WordTokenizer::token_id(const std::string& token) const {
 
 void WordTokenizer::save_vocab(const std::string& path) const {
     std::ofstream file(path, std::ios::trunc);
-    for (std::size_t i = 0; i < m_id_to_token.size(); ++i) {
-        file << m_id_to_token[i] << '\n';
+    for (const auto& token : m_id_to_token) {
+        file << std::quoted(token) << '\n';
     }
 }
 
@@ -408,8 +295,17 @@ void WordTokenizer::load_vocab(const std::string& path) {
         if (line.empty()) {
             continue;
         }
-        m_token_to_id[line] = index++;
-        m_id_to_token.push_back(line);
+        std::istringstream iss(line);
+        std::string token;
+        if (line.front() == '"') {
+            if (!(iss >> std::quoted(token))) {
+                continue;
+            }
+        } else {
+            token = line;
+        }
+        m_token_to_id[token] = index++;
+        m_id_to_token.push_back(token);
     }
     ensure_special_tokens();
 }

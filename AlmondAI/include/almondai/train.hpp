@@ -93,6 +93,7 @@ private:
     void log_stats(const TrainingStats& stats);
     void load_persistent_data();
     void load_samples_from_file(const std::filesystem::path& path, std::size_t total_samples_hint);
+    void consume_training_data_for_vocab(const std::filesystem::path& path);
     void persist_sample(const CuratedSample& sample);
     std::string derive_document_id(const CuratedSample& sample, std::size_t index) const;
     void report_load_status(std::string_view phase,
