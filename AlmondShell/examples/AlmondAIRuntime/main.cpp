@@ -1141,6 +1141,8 @@ int main() {
   help                    Show this message.
   generate <prompt>       Generate a completion and report the route/backend used.
   retrieve <query>        Search the retrieval index for relevant samples.
+  reader [file] [limit] [offset]
+                          Preview JSONL records (defaults to data/training_data.jsonl).
   directory [training]    Show absolute paths for the data/training files.
   train <file> [epochs=1] [batch=32]
                           Run batched training against a JSONL file.
@@ -1743,6 +1745,228 @@ int main() {
                 }
                 else {
                     std::cout << "(no response)\n";
+                }
+                continue;
+            }
+
+            if (lowered_command == "reader") {
+                std::vector<std::string> args;
+                std::string token;
+                while (iss >> token) {
+                    args.push_back(token);
+                }
+
+                std::string file = "data/training_data.jsonl";
+                int limit = 5;
+                int offset = 0;
+                bool file_set = false;
+                bool limit_set = false;
+                bool offset_set = false;
+                bool invalid = false;
+
+                auto set_limit = [&](const std::string& value) -> bool {
+                    try {
+                        limit = std::stoi(value);
+                        limit_set = true;
+                        return true;
+                    }
+                    catch (...) {
+                        std::cout << "Invalid limit value.\n";
+                        return false;
+                    }
+                };
+
+                auto set_offset = [&](const std::string& value) -> bool {
+                    try {
+                        offset = std::stoi(value);
+                        offset_set = true;
+                        return true;
+                    }
+                    catch (...) {
+                        std::cout << "Invalid offset value.\n";
+                        return false;
+                    }
+                };
+
+                for (const auto& arg : args) {
+                    std::string lowered = to_lower(arg);
+                    if (lowered.rfind("limit=", 0) == 0) {
+                        if (!set_limit(arg.substr(6))) {
+                            invalid = true;
+                            break;
+                        }
+                        continue;
+                    }
+                    if (lowered.rfind("offset=", 0) == 0) {
+                        if (!set_offset(arg.substr(7))) {
+                            invalid = true;
+                            break;
+                        }
+                        continue;
+                    }
+                    if (is_integer_token(arg)) {
+                        if (!limit_set) {
+                            if (!set_limit(arg)) {
+                                invalid = true;
+                                break;
+                            }
+                            continue;
+                        }
+                        if (!offset_set) {
+                            if (!set_offset(arg)) {
+                                invalid = true;
+                                break;
+                            }
+                            continue;
+                        }
+                        std::cout << "Unexpected numeric argument '" << arg << "'.\n";
+                        invalid = true;
+                        break;
+                    }
+                    if (!file_set) {
+                        if (lowered == "seed" || lowered == "training_seed") {
+                            file = "data/training_seed.jsonl";
+                        }
+                        else if (lowered == "data" || lowered == "training_data") {
+                            file = "data/training_data.jsonl";
+                        }
+                        else {
+                            file = arg;
+                        }
+                        file_set = true;
+                        continue;
+                    }
+                    std::cout << "Unknown reader option '" << arg << "'.\n";
+                    invalid = true;
+                    break;
+                }
+
+                if (invalid) {
+                    continue;
+                }
+
+                if (limit < 0) {
+                    limit = 0;
+                }
+                if (offset < 0) {
+                    offset = 0;
+                }
+
+                JsonObject params;
+                params["file"] = Json(file);
+                params["offset"] = Json(offset);
+                params["limit"] = Json(limit);
+
+                auto result = invoke_service("data.read", Json(params));
+                if (!result) {
+                    result = invoke_service("reader", Json(params));
+                }
+
+                if (!result) {
+                    std::cout << "(no response)\n";
+                    continue;
+                }
+
+                if (!result->is_object()) {
+                    std::cout << "Unexpected response format.\n";
+                    continue;
+                }
+
+                const auto& obj = result->as_object();
+                if (auto summary = obj.find("output"); summary != obj.end() && summary->second.is_string()) {
+                    std::cout << summary->second.as_string() << '\n';
+                }
+
+                if (auto records_it = obj.find("records"); records_it != obj.end() && records_it->second.is_array()) {
+                    const auto& recs = records_it->second.as_array();
+                    if (recs.empty()) {
+                        std::cout << "(no entries)\n";
+                    }
+                    else {
+                        for (const auto& item : recs) {
+                            if (!item.is_object()) {
+                                continue;
+                            }
+                            const auto& record = item.as_object();
+                            int line_number = 0;
+                            if (auto line_it = record.find("line"); line_it != record.end()) {
+                                if (auto parsed = parse_optional_int(line_it->second)) {
+                                    line_number = *parsed;
+                                }
+                            }
+
+                            std::cout << '\n';
+                            if (line_number > 0) {
+                                std::cout << "Line " << line_number << ":\n";
+                            }
+                            else {
+                                std::cout << "Record:\n";
+                            }
+
+                            bool printed_any = false;
+                            if (auto prompt_it = record.find("prompt"); prompt_it != record.end() && prompt_it->second.is_string()) {
+                                print_block("  [prompt]", prompt_it->second.as_string());
+                                printed_any = true;
+                            }
+                            if (auto teacher_it = record.find("teacher_output"); teacher_it != record.end()
+                                && teacher_it->second.is_string()) {
+                                print_block("  [teacher]", teacher_it->second.as_string());
+                                printed_any = true;
+                            }
+                            if (auto tags_it = record.find("tags"); tags_it != record.end()) {
+                                std::vector<std::string> tag_strings;
+                                if (tags_it->second.is_array()) {
+                                    const auto& arr = tags_it->second.as_array();
+                                    for (const auto& tag_value : arr) {
+                                        if (tag_value.is_string()) {
+                                            tag_strings.push_back(tag_value.as_string());
+                                        }
+                                    }
+                                }
+                                else if (tags_it->second.is_string()) {
+                                    tag_strings.push_back(tags_it->second.as_string());
+                                }
+                                if (!tag_strings.empty()) {
+                                    std::cout << "  [tags] ";
+                                    for (std::size_t idx = 0; idx < tag_strings.size(); ++idx) {
+                                        if (idx != 0) {
+                                            std::cout << ", ";
+                                        }
+                                        std::cout << tag_strings[idx];
+                                    }
+                                    std::cout << '\n';
+                                    printed_any = true;
+                                }
+                            }
+                            if (auto constraints_it = record.find("constraints"); constraints_it != record.end()) {
+                                std::cout << "  [constraints] " << constraints_it->second.dump() << '\n';
+                                printed_any = true;
+                            }
+                            if (auto error_it = record.find("error"); error_it != record.end() && error_it->second.is_string()) {
+                                std::cout << "  [error] " << error_it->second.as_string() << '\n';
+                                printed_any = true;
+                            }
+                            if (!printed_any) {
+                                if (auto raw_it = record.find("raw"); raw_it != record.end() && raw_it->second.is_string()) {
+                                    print_block("  [raw]", raw_it->second.as_string());
+                                }
+                            }
+                        }
+                    }
+                }
+                else {
+                    std::cout << "Unexpected response format.\n";
+                }
+
+                if (auto truncated_it = obj.find("truncated"); truncated_it != obj.end()) {
+                    if (parse_bool_value(truncated_it->second, false)) {
+                        std::cout << "\n(more records available - increase limit or adjust offset)\n";
+                    }
+                }
+                if (auto next_it = obj.find("next_offset"); next_it != obj.end()) {
+                    if (auto parsed = parse_optional_int(next_it->second)) {
+                        std::cout << "Next offset: " << *parsed << "\n";
+                    }
                 }
                 continue;
             }
