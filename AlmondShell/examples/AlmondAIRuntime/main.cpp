@@ -33,6 +33,7 @@
 #include <charconv>
 #include <cstdlib>
 #include <filesystem>
+#include <functional>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -41,10 +42,57 @@
 #include <stdexcept>
 #include <system_error>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <variant>
 #include <vector>
 #include <unordered_set>
+#include <streambuf>
+
+namespace {
+
+class CallbackStreambuf : public std::streambuf {
+public:
+    using ChunkHandler = std::function<void(std::string_view)>;
+
+    explicit CallbackStreambuf(ChunkHandler handler)
+        : m_handler(std::move(handler)) {}
+
+protected:
+    int_type overflow(int_type ch) override {
+        if (traits_type::eq_int_type(ch, traits_type::eof())) {
+            flush_buffer();
+            return traits_type::not_eof(ch);
+        }
+
+        m_buffer.push_back(static_cast<char>(ch));
+        if (ch == '\n') {
+            flush_buffer();
+        }
+        return ch;
+    }
+
+    int sync() override {
+        flush_buffer();
+        return 0;
+    }
+
+private:
+    void flush_buffer() {
+        if (m_buffer.empty()) {
+            return;
+        }
+        if (m_handler) {
+            m_handler(std::string_view(m_buffer));
+        }
+        m_buffer.clear();
+    }
+
+    std::string m_buffer;
+    ChunkHandler m_handler;
+};
+
+} // namespace
 
 int main() {
     using namespace almondai;
@@ -397,15 +445,6 @@ int main() {
         request["method"] = Json(method);
         request["params"] = std::move(params);
 
-        std::istringstream input(Json(request).dump() + "\n");
-        std::ostringstream output;
-        service.run(input, output);
-
-        const std::string buffer = output.str();
-        if (buffer.empty()) {
-            return false;
-        }
-
         auto parse_int = [](const Json& value, int fallback) -> int {
             return std::visit([
                                    fallback
@@ -464,20 +503,22 @@ int main() {
             }, value.value());
         };
 
-        std::istringstream lines(buffer);
-        std::string raw;
+        std::istringstream input(Json(request).dump() + "\n");
         std::size_t last_width = 0;
         bool saw_batch = false;
         bool saw_result = false;
         double final_loss = 0.0;
         int final_step = 0;
         std::string fallback_text;
+        std::string pending;
+        bool received_any = false;
 
-        while (std::getline(lines, raw)) {
+        auto handle_line = [&](std::string raw) {
             if (!raw.empty() && raw.back() == '\r') raw.pop_back();
             if (raw.empty()) {
-                continue;
+                return;
             }
+
             Json parsed;
             try {
                 parsed = Json::parse(raw);
@@ -485,13 +526,15 @@ int main() {
             catch (...) {
                 if (!fallback_text.empty()) fallback_text.append("\n");
                 fallback_text.append(raw);
-                continue;
+                return;
             }
+
             if (!parsed.is_object()) {
                 if (!fallback_text.empty()) fallback_text.append("\n");
                 fallback_text.append(raw);
-                continue;
+                return;
             }
+
             const auto& obj = parsed.as_object();
             if (auto err_it = obj.find("error"); err_it != obj.end()) {
                 if (err_it->second.is_object()) {
@@ -502,8 +545,10 @@ int main() {
                 }
                 throw std::runtime_error("service returned an error");
             }
+
             if (auto event_it = obj.find("event"); event_it != obj.end() && event_it->second.is_string()) {
-                if (event_it->second.as_string() == "batch") {
+                const std::string event = event_it->second.as_string();
+                if (event == "batch") {
                     int step_value = 0;
                     double loss_value = 0.0;
                     if (auto step_it = obj.find("step"); step_it != obj.end()) {
@@ -525,9 +570,25 @@ int main() {
                     std::cout << std::flush;
                     last_width = text.size();
                     saw_batch = true;
-                    continue;
+                    return;
+                }
+                if (event == "info") {
+                    std::string message;
+                    if (auto msg_it = obj.find("message"); msg_it != obj.end() && msg_it->second.is_string()) {
+                        message = msg_it->second.as_string();
+                    }
+                    if (!message.empty()) {
+                        if (saw_batch && last_width > 0) {
+                            std::cout << '\r' << std::string(last_width, ' ') << '\r';
+                            last_width = 0;
+                        }
+                        std::cout << "[train] " << message << '\n';
+                        std::cout.flush();
+                    }
+                    return;
                 }
             }
+
             if (auto result_it = obj.find("result"); result_it != obj.end() && result_it->second.is_object()) {
                 const auto& result = result_it->second.as_object();
                 if (auto loss_it = result.find("final_loss"); loss_it != result.end()) {
@@ -538,24 +599,61 @@ int main() {
                 }
                 saw_result = true;
             }
+        };
+
+        CallbackStreambuf buffer([&](std::string_view chunk) {
+            received_any = true;
+            pending.append(chunk.begin(), chunk.end());
+            std::size_t start = 0;
+            while (true) {
+                const std::size_t pos = pending.find('\n', start);
+                if (pos == std::string::npos) {
+                    break;
+                }
+                std::string line = pending.substr(start, pos - start);
+                handle_line(std::move(line));
+                start = pos + 1;
+            }
+            if (start > 0) {
+                pending.erase(0, start);
+            }
+        });
+
+        std::ostream output(&buffer);
+        service.run(input, output);
+        output.flush();
+        buffer.pubsync();
+
+        if (!pending.empty()) {
+            handle_line(std::move(pending));
+            pending.clear();
+        }
+
+        if (!received_any) {
+            return false;
         }
 
         if (saw_result) {
-            if (saw_batch) {
+            if (saw_batch && last_width > 0) {
                 std::cout << '\r' << std::string(last_width, ' ') << '\r';
             }
             std::ostringstream summary;
             summary << "Training complete (loss=" << std::fixed << std::setprecision(4) << final_loss
                     << ", steps=" << final_step << ")\n";
             std::cout << summary.str();
+            std::cout.flush();
         }
         else if (saw_batch) {
-            std::cout << '\r' << std::string(last_width, ' ') << '\r' << std::flush;
+            if (last_width > 0) {
+                std::cout << '\r' << std::string(last_width, ' ') << '\r';
+            }
+            std::cout.flush();
             return true;
         }
 
         if (!fallback_text.empty()) {
             std::cout << fallback_text << '\n';
+            std::cout.flush();
             return true;
         }
 
