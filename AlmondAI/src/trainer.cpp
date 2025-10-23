@@ -1,13 +1,16 @@
 #include "../include/almondai/trainer.hpp"
 
 #include "../include/almondai/json.hpp"
+#include "../include/almondai/adapter.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <iostream>
 #include <numeric>
 #include <unordered_map>
 #include <unordered_set>
+#include <limits>
 
 namespace almondai {
 
@@ -293,6 +296,7 @@ TrainingReport Trainer::train_on_batch(const std::vector<TrainingExample>& batch
     if (m_options.save_every > 0 && (m_step % m_options.save_every) == 0) {
         report.checkpoint_saved = save_checkpoint();
     }
+    maybe_retune_scheduler(total_tokens, report.loss);
     return report;
 }
 
@@ -364,6 +368,81 @@ EvaluationReport Trainer::evaluate(const std::vector<TrainingExample>& dataset) 
         report.tag_perplexity[tag] = std::exp(avg_loss);
         report.tag_token_counts[tag] = tokens;
     }
+
+    auto compute_token_set = [this](const std::string& text) {
+        std::unordered_set<int> set;
+        auto tokens = m_tokenizer.encode(text);
+        for (int id : tokens) {
+            if (id <= BpeTokenizer::PAD_ID || id == BpeTokenizer::EOS_ID) {
+                continue;
+            }
+            set.insert(id);
+        }
+        return set;
+    };
+
+    double current_hit_rate = 0.0;
+    if (dataset.size() >= 2) {
+        std::size_t hits = 0;
+        for (std::size_t i = 0; i < dataset.size(); ++i) {
+            const auto prompt_tokens = compute_token_set(dataset[i].prompt);
+            if (prompt_tokens.empty()) {
+                continue;
+            }
+            double best = 0.0;
+            for (std::size_t j = 0; j < dataset.size(); ++j) {
+                if (i == j) {
+                    continue;
+                }
+                const auto other_tokens = compute_token_set(dataset[j].prompt);
+                if (other_tokens.empty()) {
+                    continue;
+                }
+                std::size_t intersection = 0;
+                for (int token : prompt_tokens) {
+                    if (other_tokens.find(token) != other_tokens.end()) {
+                        ++intersection;
+                    }
+                }
+                const std::size_t union_size = prompt_tokens.size() + other_tokens.size() - intersection;
+                if (union_size == 0) {
+                    continue;
+                }
+                const double score = static_cast<double>(intersection) / static_cast<double>(union_size);
+                best = std::max(best, score);
+            }
+            if (best > 0.0) {
+                ++hits;
+            }
+        }
+        current_hit_rate = static_cast<double>(hits) / static_cast<double>(dataset.size());
+    }
+
+    if (std::isfinite(current_hit_rate)) {
+        double previous_hit_rate = m_retrieval_hit_rate_history.empty() ? current_hit_rate
+                                                                        : m_retrieval_hit_rate_history.back();
+        record_retrieval_hit_rate(current_hit_rate);
+        report.retrieval_hit_rate = current_hit_rate;
+        report.retrieval_hit_rate_delta = current_hit_rate - previous_hit_rate;
+        report.retrieval_hit_rate_history.assign(m_retrieval_hit_rate_history.begin(),
+                                                 m_retrieval_hit_rate_history.end());
+    }
+
+    double adapter_norm = 0.0;
+    if (const Adapter* adapter = m_model.base().active_adapter()) {
+        adapter_norm = adapter->norm();
+    }
+    report.current_adapter_norm = adapter_norm;
+    record_adapter_norm(adapter_norm);
+    report.adapter_norm_history.assign(m_adapter_norm_history.begin(), m_adapter_norm_history.end());
+
+    report.policy_incident_history.assign(m_policy_incident_history.begin(), m_policy_incident_history.end());
+    std::size_t recent_incidents = 0;
+    for (std::size_t incidents : m_policy_incident_history) {
+        recent_incidents += incidents;
+    }
+    report.recent_policy_incident_count = recent_incidents;
+
     return report;
 }
 
@@ -373,6 +452,122 @@ bool Trainer::save_checkpoint() const {
     }
     std::filesystem::create_directories(m_checkpoint_path.parent_path());
     return m_model.base().save_weights(m_checkpoint_path.string());
+}
+
+void Trainer::record_retrieval_hit_rate(double hit_rate) const {
+    if (!std::isfinite(hit_rate)) {
+        return;
+    }
+    m_retrieval_hit_rate_history.push_back(hit_rate);
+    while (m_retrieval_hit_rate_history.size() > kTelemetryWindow) {
+        m_retrieval_hit_rate_history.pop_front();
+    }
+}
+
+void Trainer::record_adapter_norm(double norm) const {
+    if (!std::isfinite(norm)) {
+        norm = 0.0;
+    }
+    m_adapter_norm_history.push_back(norm);
+    while (m_adapter_norm_history.size() > kTelemetryWindow) {
+        m_adapter_norm_history.pop_front();
+    }
+}
+
+void Trainer::record_policy_incidents(std::size_t incidents) const {
+    m_policy_incident_history.push_back(incidents);
+    while (m_policy_incident_history.size() > kTelemetryWindow) {
+        m_policy_incident_history.pop_front();
+    }
+}
+
+void Trainer::log_scheduler_event(const std::string& message) const {
+    std::cout << "[Trainer] " << message << std::endl;
+}
+
+void Trainer::maybe_retune_scheduler(std::size_t tokens, double loss) {
+    constexpr std::size_t kWindow = 8;
+    constexpr double kPlateauTolerance = 0.01; // 1% improvement threshold
+    constexpr double kThroughputDrop = 0.75;    // 25% drop triggers retune
+    constexpr std::size_t kRetuneCooldown = 200;
+
+    m_recent_losses.push_back(loss);
+    if (m_recent_losses.size() > kWindow) {
+        m_recent_losses.pop_front();
+    }
+    m_recent_throughput.push_back(tokens);
+    if (m_recent_throughput.size() > kWindow) {
+        m_recent_throughput.pop_front();
+    }
+
+    if (m_step < m_last_scheduler_retune_step + kRetuneCooldown) {
+        return;
+    }
+
+    auto relative_improvement = [this]() {
+        if (m_recent_losses.size() < 2) {
+            return 1.0;
+        }
+        const double first = m_recent_losses.front();
+        const double last = m_recent_losses.back();
+        if (!std::isfinite(first) || !std::isfinite(last)) {
+            return 1.0;
+        }
+        if (std::fabs(first) < 1e-9) {
+            return 1.0;
+        }
+        return (first - last) / std::fabs(first);
+    }();
+
+    if (m_recent_losses.size() >= kWindow && relative_improvement < kPlateauTolerance) {
+        auto params = m_optimizer.params();
+        params.learning_rate *= 0.9;
+        m_optimizer.set_params(params);
+        m_model.base().set_learning_rate(params.learning_rate);
+        double new_min_ratio = std::max(0.01, m_scheduler.min_ratio() * 0.8);
+        m_scheduler.set_min_ratio(new_min_ratio);
+        std::size_t adjusted_total = std::max(m_scheduler.total_steps(), m_step + 1000);
+        m_scheduler.set_total_steps(adjusted_total);
+        log_scheduler_event("Loss plateau detected; reduced learning rate to " +
+                            std::to_string(params.learning_rate) +
+                            ", min_lr_ratio=" + std::to_string(new_min_ratio));
+        m_recent_losses.clear();
+        m_recent_throughput.clear();
+        m_last_scheduler_retune_step = m_step;
+        return;
+    }
+
+    if (m_recent_throughput.size() >= kWindow) {
+        const std::size_t half = m_recent_throughput.size() / 2;
+        if (half > 0) {
+            double early_avg = 0.0;
+            for (std::size_t i = 0; i < half; ++i) {
+                early_avg += static_cast<double>(m_recent_throughput[i]);
+            }
+            early_avg /= static_cast<double>(half);
+            double recent_avg = 0.0;
+            for (std::size_t i = half; i < m_recent_throughput.size(); ++i) {
+                recent_avg += static_cast<double>(m_recent_throughput[i]);
+            }
+            recent_avg /= static_cast<double>(m_recent_throughput.size() - half);
+            if (early_avg > 0.0 && recent_avg < early_avg * kThroughputDrop) {
+                auto params = m_optimizer.params();
+                params.learning_rate *= 1.05;
+                m_optimizer.set_params(params);
+                m_model.base().set_learning_rate(params.learning_rate);
+                std::size_t new_warmup = std::max<std::size_t>(1, m_scheduler.warmup_steps() / 2);
+                m_scheduler.set_warmup_steps(new_warmup);
+                std::size_t new_total = std::max(m_scheduler.total_steps(), m_step + 2000);
+                m_scheduler.set_total_steps(new_total);
+                log_scheduler_event("Token throughput dropped; boosted learning rate to " +
+                                    std::to_string(params.learning_rate) +
+                                    ", warmup=" + std::to_string(new_warmup));
+                m_recent_losses.clear();
+                m_recent_throughput.clear();
+                m_last_scheduler_retune_step = m_step;
+            }
+        }
+    }
 }
 
 } // namespace almondai
