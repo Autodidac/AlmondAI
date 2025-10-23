@@ -445,6 +445,27 @@
     return v; // leave unknown formats untouched
   }
 
+  function flattenContent(value) {
+    if (value == null) return '';
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    if (Array.isArray(value)) {
+      return value.map(flattenContent).filter(Boolean).join('\n');
+    }
+    if (typeof value === 'object') {
+      const keys = ['text', 'value', 'content', 'output_text'];
+      const parts = [];
+      for (const key of keys) {
+        if (key in value) {
+          const chunk = flattenContent(value[key]);
+          if (chunk) parts.push(chunk);
+        }
+      }
+      return parts.join('\n');
+    }
+    return '';
+  }
+
   function buildMessages(){
     const sys = $('system').value.trim();
     const msgs = [];
@@ -528,7 +549,7 @@
       if (!stream){
         let js=null; try{ js=await r.json(); }catch{}
         if (!r.ok || !js){ showError(js?.error?.message || `HTTP ${r.status}`); setStatus('Error','error'); return; }
-        const content = js?.choices?.[0]?.message?.content ?? js?.output_text ?? '';
+        const content = flattenContent(js?.choices?.[0]?.message?.content) || js?.output_text || '';
         pre.textContent = content;
         chatObj.messages.push({ role:'assistant', content });
         setStatus(`HTTP ${r.status}`,'idle');
@@ -545,7 +566,7 @@
             const pl = line.slice(5).trim(); if (pl === '[DONE]') continue;
             try{
               const js = JSON.parse(pl);
-              const delta = js?.choices?.[0]?.delta?.content ?? '';
+              const delta = flattenContent(js?.choices?.[0]?.delta?.content);
               if (delta){ acc += delta; pre.textContent = acc; chatEl.scrollTop = chatEl.scrollHeight; }
             }catch{}
           }

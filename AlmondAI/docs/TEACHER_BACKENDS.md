@@ -91,3 +91,6 @@ optional because the local server does not require authentication.
 Need a quick way to verify LM Studio is reachable? Open
 `docs/lmstudio_client.html` in a browser and issue prompts directly against the
 server using the same OpenAI-compatible payloads that AlmondAI produces.
+The bridge now flattens LM Studio's segmented `content` arrays, so replies from
+newer builds (including multimodal-capable models) register as remote messages
+rather than empty responses that would trigger the fallback teacher.

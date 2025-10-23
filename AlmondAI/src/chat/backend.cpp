@@ -44,6 +44,60 @@ std::string strip(const std::string& text) {
     return std::string(begin, end);
 }
 
+std::string flatten_content(const Json& node) {
+    if (node.is_string()) {
+        return node.as_string();
+    }
+    if (node.is_array()) {
+        std::string result;
+        for (const auto& entry : node.as_array()) {
+            std::string piece = flatten_content(entry);
+            if (piece.empty()) {
+                continue;
+            }
+            if (!result.empty()) {
+                result.push_back('\n');
+            }
+            result += piece;
+        }
+        return result;
+    }
+    if (node.is_object()) {
+        const auto& obj = node.as_object();
+        std::string result;
+        auto append_key = [&](const char* key) {
+            auto it = obj.find(key);
+            if (it == obj.end()) {
+                return;
+            }
+            std::string piece = flatten_content(it->second);
+            if (piece.empty()) {
+                return;
+            }
+            if (!result.empty()) {
+                result.push_back('\n');
+            }
+            result += piece;
+        };
+        append_key("text");
+        append_key("value");
+        append_key("content");
+        append_key("output_text");
+        return result;
+    }
+
+    const auto& raw = node.value();
+    if (const auto* boolean = std::get_if<bool>(&raw)) {
+        return *boolean ? "true" : "false";
+    }
+    if (const auto* number = std::get_if<double>(&raw)) {
+        std::ostringstream oss;
+        oss << *number;
+        return oss.str();
+    }
+    return {};
+}
+
 } // namespace
 
 namespace almondai::chat {
@@ -224,10 +278,36 @@ public:
                 const auto& choices = choices_it->second.as_array();
                 if (!choices.empty() && choices.front().is_object()) {
                     const auto& choice = choices.front().as_object();
-                    if (auto msg_it = choice.find("message"); msg_it != choice.end() && msg_it->second.is_object()) {
-                        const auto& message = msg_it->second.as_object();
-                        if (auto content_it = message.find("content"); content_it != message.end() && content_it->second.is_string()) {
-                            return strip(content_it->second.as_string());
+                    if (auto msg_it = choice.find("message"); msg_it != choice.end()) {
+                        const auto& message_node = msg_it->second;
+                        if (message_node.is_object()) {
+                            const auto& message = message_node.as_object();
+                            if (auto content_it = message.find("content"); content_it != message.end()) {
+                                const std::string content = strip(flatten_content(content_it->second));
+                                if (!content.empty()) {
+                                    return content;
+                                }
+                            }
+                            if (auto text_it = message.find("text"); text_it != message.end()) {
+                                const std::string text = strip(flatten_content(text_it->second));
+                                if (!text.empty()) {
+                                    return text;
+                                }
+                            }
+                        } else {
+                            const std::string message_text = strip(flatten_content(message_node));
+                            if (!message_text.empty()) {
+                                return message_text;
+                            }
+                        }
+                    }
+                    if (auto delta_it = choice.find("delta"); delta_it != choice.end() && delta_it->second.is_object()) {
+                        const auto& delta = delta_it->second.as_object();
+                        if (auto content_it = delta.find("content"); content_it != delta.end()) {
+                            const std::string content = strip(flatten_content(content_it->second));
+                            if (!content.empty()) {
+                                return content;
+                            }
                         }
                     }
                     if (auto text_it = choice.find("text"); text_it != choice.end() && text_it->second.is_string()) {
