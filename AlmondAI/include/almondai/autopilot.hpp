@@ -10,6 +10,7 @@
 #include <optional>
 #include <regex>
 #include <string>
+#include <string_view>
 
 namespace almondai {
 
@@ -55,6 +56,7 @@ private:
     void promote_if_improved(double perplexity);
     void rebuild_retrieval_index(const std::vector<TrainingExample>& dataset) const;
     void harvest_from_seed_files();
+    void log(std::string_view message) const;
 };
 
 } // namespace almondai
