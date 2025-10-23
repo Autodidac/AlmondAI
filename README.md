@@ -85,6 +85,11 @@ cmake --build build            # emits libalmondai.a / almondai.lib
 The library installs headers under `AlmondAI/include` and can be linked into
 another application that provides an MCP host or CLI.
 
+> **Build note (Windows):** The runtime now calls `_dupenv_s` when reading
+> environment overrides such as `ALMONDAI_HTTP_TIMEOUT_MS`. This keeps MSVC
+> happy without forcing `_CRT_SECURE_NO_WARNINGS`, so you do not need to modify
+> your project-wide warning settings to build the library cleanly.
+
 ## Visual Studio Console Runtime
 
 Windows developers can open `AlmondAI.sln` and build the

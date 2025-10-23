@@ -31,16 +31,35 @@ size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userdata) {
     return total;
 }
 
+std::string read_environment_variable(const char* name) {
+#ifdef _WIN32
+    size_t required = 0;
+    char* buffer = nullptr;
+    if (_dupenv_s(&buffer, &required, name) != 0 || !buffer) {
+        return {};
+    }
+    std::string value(buffer);
+    std::free(buffer);
+    return value;
+#else
+    if (const char* raw = std::getenv(name)) {
+        return std::string(raw);
+    }
+    return {};
+#endif
+}
+
 long resolve_timeout(long timeout_ms) {
     if (timeout_ms > 0) {
         return timeout_ms;
     }
 
     long resolved = 60000; // 60 seconds gives local servers (e.g. LM Studio) time to answer.
-    if (const char* raw = std::getenv("ALMONDAI_HTTP_TIMEOUT_MS")) {
+    const std::string raw = read_environment_variable("ALMONDAI_HTTP_TIMEOUT_MS");
+    if (!raw.empty()) {
         char* end = nullptr;
-        const long candidate = std::strtol(raw, &end, 10);
-        if (end != raw && candidate > 0) {
+        const long candidate = std::strtol(raw.c_str(), &end, 10);
+        if (end != raw.c_str() && candidate > 0) {
             resolved = candidate;
         }
     }
