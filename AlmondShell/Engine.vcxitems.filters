@@ -543,6 +543,27 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\tokenizer_word.hpp">
       <Filter>Header Files\AlmondAI\utility</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\autopilot.hpp">
+      <Filter>Header Files\AlmondAI</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\model_config.hpp">
+      <Filter>Header Files\AlmondAI</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\optim_adamw.hpp">
+      <Filter>Header Files\AlmondAI</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\retrieval_refresh.hpp">
+      <Filter>Header Files\AlmondAI</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\scheduler.hpp">
+      <Filter>Header Files\AlmondAI</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\tokenizer_bpe.hpp">
+      <Filter>Header Files\AlmondAI</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\trainer.hpp">
+      <Filter>Header Files\AlmondAI</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Image Include="$(MSBuildThisFileDirectory)src\icon.ico">
@@ -634,6 +655,27 @@
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\tokenizer_word.cpp">
       <Filter>Source Files\AlmondAI\utility</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\autopilot.cpp">
+      <Filter>Source Files\AlmondAI</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\model_config.cpp">
+      <Filter>Source Files\AlmondAI</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\optim_adamw.cpp">
+      <Filter>Source Files\AlmondAI</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\retrieval_refresh.cpp">
+      <Filter>Source Files\AlmondAI</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\scheduler.cpp">
+      <Filter>Source Files\AlmondAI</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\tokenizer_bpe.cpp">
+      <Filter>Source Files\AlmondAI</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\trainer.cpp">
+      <Filter>Source Files\AlmondAI</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>
