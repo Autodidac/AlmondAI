@@ -130,14 +130,22 @@ Autopilot::Autopilot(Trainer& trainer, TokenizerCoordinator& tokenizers)
     , m_seed_path("data/training_seed.jsonl")
     , m_eval_path("data/eval_seed.jsonl")
     , m_weights_path("data/student_weights.json")
-    , m_mutation_ledger_path("data/mutation_ledger.jsonl") {}
+    , m_mutation_ledger_path("data/mutation_ledger.jsonl")
+    , m_telemetry_ledger_path("data/telemetry_ledger.jsonl") {}
 
 void Autopilot::run() {
     log("Starting autopilot run");
+    m_policy_incidents_this_cycle = 0;
+    m_policy_incidents_recorded = false;
     harvest_from_seed_files();
     warmup_if_needed();
     maybe_train();
     maybe_evaluate();
+    if (!m_policy_incidents_recorded) {
+        m_trainer.record_policy_incidents(m_policy_incidents_this_cycle);
+        m_policy_incidents_recorded = true;
+    }
+    m_policy_incidents_this_cycle = 0;
     log("Autopilot run complete");
 }
 
@@ -396,6 +404,11 @@ void Autopilot::enqueue_sample(const TrainingExample& sample) {
         m_tokenizers.persist();
     }
     auto decision = gate_sample(sample);
+    if (!decision.governor_report.allowed) {
+        std::size_t incidents = std::max<std::size_t>(std::size_t{1}, decision.governor_report.violations.size());
+        m_policy_incidents_this_cycle += incidents;
+        m_policy_incidents_recorded = false;
+    }
     record_mutation_decision(sample, decision);
     if (!decision.accepted) {
         return;
@@ -451,29 +464,57 @@ void Autopilot::maybe_evaluate() {
     if (m_trainer.step() < m_last_eval_step + 200) {
         return;
     }
+    if (!m_policy_incidents_recorded) {
+        m_trainer.record_policy_incidents(m_policy_incidents_this_cycle);
+        m_policy_incidents_recorded = true;
+        m_policy_incidents_this_cycle = 0;
+    }
     auto report = m_trainer.evaluate(m_trainer.eval_dataset());
     m_last_eval_step = m_trainer.step();
     if (report.tokens > 0) {
-        promote_if_improved(report.perplexity);
+        promote_if_improved(report);
         update_curriculum(report);
         std::ostringstream oss;
         oss << "Evaluation at step " << m_last_eval_step << " processed " << report.tokens << " tokens (loss="
             << std::fixed << std::setprecision(4) << report.loss << ", ppl=" << std::setprecision(3)
-            << report.perplexity << ')';
+            << report.perplexity;
+        oss << std::setprecision(4) << " | retrieval_delta=" << report.retrieval_hit_rate_delta;
+        oss << std::setprecision(3) << " | adapter_norm=" << report.current_adapter_norm;
+        oss << " | policy_incidents=" << report.recent_policy_incident_count << ')';
         log(oss.str());
     }
 }
 
-void Autopilot::promote_if_improved(double perplexity) {
-    if (!std::isfinite(perplexity)) {
+void Autopilot::promote_if_improved(const EvaluationReport& report) {
+    if (report.tokens == 0 || !std::isfinite(report.perplexity)) {
         return;
     }
-    if (m_best_eval_perplexity == std::numeric_limits<double>::infinity() ||
-        perplexity <= m_best_eval_perplexity * 0.98) {
-        m_best_eval_perplexity = perplexity;
+    const bool first_perplexity = m_best_eval_perplexity == std::numeric_limits<double>::infinity();
+    const bool first_retrieval = m_best_retrieval_hit_rate == -std::numeric_limits<double>::infinity();
+    const bool first_policy = m_lowest_policy_incidents == std::numeric_limits<std::size_t>::max();
+
+    const bool perplexity_improved = first_perplexity || (report.perplexity <= m_best_eval_perplexity * 0.98);
+    const bool retrieval_improved = first_retrieval ||
+                                    (report.retrieval_hit_rate > m_best_retrieval_hit_rate + 1e-6 &&
+                                     report.retrieval_hit_rate_delta > 0.0);
+    const bool safety_improved = first_policy ||
+                                 (report.recent_policy_incident_count < m_lowest_policy_incidents);
+
+    if (perplexity_improved && retrieval_improved && safety_improved) {
+        m_best_eval_perplexity = report.perplexity;
+        m_best_retrieval_hit_rate = report.retrieval_hit_rate;
+        m_lowest_policy_incidents = report.recent_policy_incident_count;
         m_trainer.save_checkpoint();
         std::ostringstream oss;
-        oss << "Promoted new best checkpoint with perplexity " << std::fixed << std::setprecision(3) << perplexity;
+        oss << "Promoted new checkpoint (ppl=" << std::fixed << std::setprecision(3) << report.perplexity
+            << ", retrieval=" << std::setprecision(4) << report.retrieval_hit_rate
+            << ", incidents=" << report.recent_policy_incident_count << ')';
+        log(oss.str());
+        record_promotion_rationale(report);
+    } else if (perplexity_improved && (!retrieval_improved || !safety_improved)) {
+        std::ostringstream oss;
+        oss << "Skipped promotion: retrieval_delta=" << std::fixed << std::setprecision(4)
+            << report.retrieval_hit_rate_delta << ", incidents=" << report.recent_policy_incident_count;
         log(oss.str());
     }
 }
@@ -548,6 +589,47 @@ void Autopilot::harvest_from_seed_files() {
 
 void Autopilot::log(std::string_view message) const {
     std::cout << "[Autopilot " << timestamp_now() << "] " << message << std::endl;
+}
+
+void Autopilot::record_promotion_rationale(const EvaluationReport& report) const {
+    if (m_telemetry_ledger_path.empty()) {
+        return;
+    }
+    std::filesystem::create_directories(m_telemetry_ledger_path.parent_path());
+    std::ofstream ledger(m_telemetry_ledger_path, std::ios::app);
+    if (!ledger) {
+        return;
+    }
+
+    JsonObject entry;
+    entry["timestamp"] = Json(timestamp_now());
+    entry["event"] = Json("promotion");
+    entry["step"] = Json(static_cast<double>(m_trainer.step()));
+    entry["perplexity"] = Json(report.perplexity);
+    entry["retrieval_hit_rate"] = Json(report.retrieval_hit_rate);
+    entry["retrieval_hit_rate_delta"] = Json(report.retrieval_hit_rate_delta);
+    entry["policy_incidents_recent"] = Json(static_cast<double>(report.recent_policy_incident_count));
+    entry["adapter_norm"] = Json(report.current_adapter_norm);
+
+    JsonArray adapter_history;
+    for (double norm : report.adapter_norm_history) {
+        adapter_history.emplace_back(Json(norm));
+    }
+    entry["adapter_norm_history"] = Json(adapter_history);
+
+    JsonArray policy_history;
+    for (std::size_t incidents : report.policy_incident_history) {
+        policy_history.emplace_back(Json(static_cast<double>(incidents)));
+    }
+    entry["policy_incident_history"] = Json(policy_history);
+
+    JsonArray retrieval_history;
+    for (double rate : report.retrieval_hit_rate_history) {
+        retrieval_history.emplace_back(Json(rate));
+    }
+    entry["retrieval_hit_rate_history"] = Json(retrieval_history);
+
+    ledger << Json(entry).dump() << '\n';
 }
 
 std::vector<std::string> Autopilot::sample_tags(const TrainingExample& sample) const {

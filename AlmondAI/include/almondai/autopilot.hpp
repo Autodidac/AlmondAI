@@ -64,11 +64,16 @@ private:
     std::filesystem::path m_eval_path;
     std::filesystem::path m_weights_path;
     std::filesystem::path m_mutation_ledger_path;
+    std::filesystem::path m_telemetry_ledger_path;
 
     std::deque<std::string> m_recent_outputs;
     std::size_t m_pending_since_train = 0;
     std::size_t m_last_eval_step = 0;
     double m_best_eval_perplexity = std::numeric_limits<double>::infinity();
+    double m_best_retrieval_hit_rate = -std::numeric_limits<double>::infinity();
+    std::size_t m_lowest_policy_incidents = std::numeric_limits<std::size_t>::max();
+    std::size_t m_policy_incidents_this_cycle = 0;
+    bool m_policy_incidents_recorded = false;
     double m_quality_floor = 0.35;
     std::vector<std::string> m_curriculum_priority;
 
@@ -92,10 +97,11 @@ private:
     void enqueue_sample(const TrainingExample& sample);
     void maybe_train();
     void maybe_evaluate();
-    void promote_if_improved(double perplexity);
+    void promote_if_improved(const EvaluationReport& report);
     void rebuild_retrieval_index(const std::vector<TrainingExample>& dataset) const;
     void harvest_from_seed_files();
     void log(std::string_view message) const;
+    void record_promotion_rationale(const EvaluationReport& report) const;
 };
 
 } // namespace almondai
