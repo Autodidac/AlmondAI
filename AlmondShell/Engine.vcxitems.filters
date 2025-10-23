@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <Filter Include="Source Files">
@@ -115,12 +115,6 @@
     <Filter Include="Header Files\AlmondAI\chat">
       <UniqueIdentifier>{755ec1f0-8da8-4986-acfb-71b14393b987}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Source Files\AlmondAI\net">
-      <UniqueIdentifier>{3c42b276-6bca-44ed-ad93-b7da0e6fd46d}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Source Files\AlmondAI\chat">
-      <UniqueIdentifier>{d37fac3f-b777-4f37-ae58-4e3a3e9c8302}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Source Files\AlmondAI\core">
       <UniqueIdentifier>{27ab26f9-8987-4715-8a1d-0ce74ca17cf2}</UniqueIdentifier>
     </Filter>
@@ -132,6 +126,12 @@
     </Filter>
     <Filter Include="Source Files\AlmondAI\utility">
       <UniqueIdentifier>{a3e4620a-647d-43c6-a698-9ec715fa33e1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\AlmondAI\utility\chat">
+      <UniqueIdentifier>{d37fac3f-b777-4f37-ae58-4e3a3e9c8302}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\AlmondAI\utility\net">
+      <UniqueIdentifier>{3c42b276-6bca-44ed-ad93-b7da0e6fd46d}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -627,10 +627,10 @@
       <Filter>Source Files\AlmondAI</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\chat\backend.cpp">
-      <Filter>Source Files\AlmondAI\chat</Filter>
+      <Filter>Source Files\AlmondAI\utility\chat</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\net\http.cpp">
-      <Filter>Source Files\AlmondAI\net</Filter>
+      <Filter>Source Files\AlmondAI\utility\net</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\fallback.cpp">
       <Filter>Source Files\AlmondAI</Filter>
@@ -665,9 +665,6 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\model_config.cpp">
       <Filter>Source Files\AlmondAI</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\optim_adamw.cpp">
-      <Filter>Source Files\AlmondAI</Filter>
-    </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\retrieval_refresh.cpp">
       <Filter>Source Files\AlmondAI</Filter>
     </ClCompile>
@@ -682,6 +679,12 @@
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\trainer.cpp">
       <Filter>Source Files\AlmondAI</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\tokenizer_bpe.cpp">
+      <Filter>Source Files\AlmondAI\utility</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\optim_adamw.cpp">
+      <Filter>Source Files\AlmondAI\utility</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>
