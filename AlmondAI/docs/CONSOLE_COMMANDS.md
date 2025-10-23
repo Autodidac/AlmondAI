@@ -19,6 +19,8 @@
 | `history` | `history [clear]` | Optional `clear` | Shows the recorded conversation log with routes, usage metrics, and notes, or clears it when `clear` is provided. | Maintains an in-memory log only; `clear` resets the vector and turn counter without touching files. 【F:AlmondShell/examples/AlmondAIRuntime/main.cpp†L1414-L1455】 |
 | Escaped prompt | `\\<text>` | `<text>` (required prompt) | Forces the console to treat the input as a prompt even if it begins with `/`, bypassing command parsing. | Delegates directly to `generate` handling; effects mirror a normal prompt submission. 【F:AlmondShell/examples/AlmondAIRuntime/main.cpp†L1038-L1105】【F:AlmondShell/examples/AlmondAIRuntime/main.cpp†L1598-L1603】 |
 
+> **Autopilot output:** When the self-learning loop runs, the runtime now prints timestamped `[Autopilot …]` lines that detail dataset harvesting, warmup training, gating outcomes, batch updates, evaluations, and checkpoint promotions so you can follow progress in real time. 【F:AlmondAI/src/autopilot.cpp†L45-L135】【F:AlmondAI/src/autopilot.cpp†L255-L406】
+
 **Which commands train the model?** `generate` (when auto-training conditions are met), `train`, `auto`/`autopilot`, and `self-learn`/`selflearn` call into learner training paths that update weights, append to `data/training_data.jsonl`, refresh retrieval metadata, and log metrics. 【F:AlmondShell/examples/AlmondAIRuntime/main.cpp†L805-L1034】【F:AlmondAI/src/serve.cpp†L616-L689】【F:AlmondAI/src/serve.cpp†L989-L1287】【F:AlmondAI/src/train.cpp†L360-L446】【F:AlmondAI/src/train.cpp†L1159-L1181】
 
 **Retrieval-only commands:** `retrieve` queries the retrieval index without changing state. 【F:AlmondShell/examples/AlmondAIRuntime/main.cpp†L1606-L1691】【F:AlmondAI/src/serve.cpp†L773-L781】
