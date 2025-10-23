@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -33,6 +34,8 @@ struct EvaluationReport {
     std::size_t tokens = 0;
     double loss = 0.0;
     double perplexity = 0.0;
+    std::unordered_map<std::string, double> tag_perplexity;
+    std::unordered_map<std::string, std::size_t> tag_token_counts;
 };
 
 class Trainer {

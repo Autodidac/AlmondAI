@@ -6,6 +6,8 @@
 #include <cmath>
 #include <fstream>
 #include <numeric>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace almondai {
 
@@ -31,6 +33,53 @@ void truncate_context(std::vector<int>& context, std::size_t limit) {
 }
 
 } // namespace
+
+std::vector<std::string> tags_from_json(const Json& value) {
+    std::vector<std::string> tags;
+    if (!value.is_array()) {
+        return tags;
+    }
+    for (const auto& item : value.as_array()) {
+        if (item.is_string()) {
+            tags.push_back(item.as_string());
+        }
+    }
+    return tags;
+}
+
+std::vector<std::string> evaluation_tags(const TrainingExample& sample) {
+    std::unordered_set<std::string> unique;
+    if (sample.provenance.is_object()) {
+        const auto& provenance = sample.provenance.as_object();
+        if (auto it = provenance.find("tags"); it != provenance.end()) {
+            for (const auto& tag : tags_from_json(it->second)) {
+                unique.insert(tag);
+            }
+        }
+        if (auto src_it = provenance.find("source"); src_it != provenance.end() && src_it->second.is_string()) {
+            unique.insert(std::string("source::") + src_it->second.as_string());
+        }
+        if (auto prompt_it = provenance.find("prompt_hash"); prompt_it != provenance.end() && prompt_it->second.is_string()) {
+            unique.insert(prompt_it->second.as_string());
+        }
+    }
+    if (sample.constraints.is_object()) {
+        const auto& constraints = sample.constraints.as_object();
+        if (auto it = constraints.find("tags"); it != constraints.end()) {
+            for (const auto& tag : tags_from_json(it->second)) {
+                unique.insert(tag);
+            }
+        }
+        if (auto curriculum_it = constraints.find("curriculum_tag");
+            curriculum_it != constraints.end() && curriculum_it->second.is_string()) {
+            unique.insert(curriculum_it->second.as_string());
+        }
+    }
+    if (unique.empty()) {
+        unique.insert("curriculum::general");
+    }
+    return std::vector<std::string>(unique.begin(), unique.end());
+}
 
 Trainer::Trainer(StudentModel& model,
                  BpeTokenizer& tokenizer,
@@ -260,6 +309,8 @@ EvaluationReport Trainer::evaluate(const std::vector<TrainingExample>& dataset) 
     const auto& config = m_model.base().config();
     double total_loss = 0.0;
     std::size_t total_tokens = 0;
+    std::vector<double> sample_loss(dataset.size(), 0.0);
+    std::vector<std::size_t> sample_tokens(dataset.size(), 0);
 
     for (std::size_t i = 0; i < prepared.inputs.size(); ++i) {
         std::vector<int> context = trim_pad(prepared.inputs[i]);
@@ -279,6 +330,8 @@ EvaluationReport Trainer::evaluate(const std::vector<TrainingExample>& dataset) 
             (void)grad_logits;
             total_loss += step_loss;
             ++total_tokens;
+            sample_loss[i] += step_loss;
+            ++sample_tokens[i];
             context.push_back(target_id);
         }
     }
@@ -289,6 +342,28 @@ EvaluationReport Trainer::evaluate(const std::vector<TrainingExample>& dataset) 
     report.tokens = total_tokens;
     report.loss = total_loss / static_cast<double>(total_tokens);
     report.perplexity = std::exp(report.loss);
+
+    std::unordered_map<std::string, double> tag_loss;
+    std::unordered_map<std::string, std::size_t> tag_tokens;
+    for (std::size_t i = 0; i < dataset.size(); ++i) {
+        if (sample_tokens[i] == 0) {
+            continue;
+        }
+        const auto tags = evaluation_tags(dataset[i]);
+        for (const auto& tag : tags) {
+            tag_loss[tag] += sample_loss[i];
+            tag_tokens[tag] += sample_tokens[i];
+        }
+    }
+
+    for (const auto& [tag, tokens] : tag_tokens) {
+        if (tokens == 0) {
+            continue;
+        }
+        double avg_loss = tag_loss[tag] / static_cast<double>(tokens);
+        report.tag_perplexity[tag] = std::exp(avg_loss);
+        report.tag_token_counts[tag] = tokens;
+    }
     return report;
 }
 
