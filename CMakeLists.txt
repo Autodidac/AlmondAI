@@ -18,11 +18,18 @@ set(ALMONDAI_HEADERS
     AlmondAI/include/almondai/json.hpp
     AlmondAI/include/almondai/net/http.hpp
     AlmondAI/include/almondai/mcp.hpp
+    AlmondAI/include/almondai/model_config.hpp
     AlmondAI/include/almondai/model.hpp
+    AlmondAI/include/almondai/optim_adamw.hpp
     AlmondAI/include/almondai/retrieval.hpp
+    AlmondAI/include/almondai/retrieval_refresh.hpp
+    AlmondAI/include/almondai/scheduler.hpp
     AlmondAI/include/almondai/serve.hpp
     AlmondAI/include/almondai/tensor.hpp
+    AlmondAI/include/almondai/tokenizer_bpe.hpp
     AlmondAI/include/almondai/tokenizer_word.hpp
+    AlmondAI/include/almondai/trainer.hpp
+    AlmondAI/include/almondai/autopilot.hpp
     AlmondAI/include/almondai/train.hpp)
 
 set(ALMONDAI_SOURCES
@@ -35,12 +42,19 @@ set(ALMONDAI_SOURCES
     AlmondAI/src/ingest.cpp
     AlmondAI/src/json.cpp
     AlmondAI/src/mcp.cpp
+    AlmondAI/src/model_config.cpp
     AlmondAI/src/model.cpp
     AlmondAI/src/net/http.cpp
+    AlmondAI/src/optim_adamw.cpp
     AlmondAI/src/retrieval.cpp
+    AlmondAI/src/retrieval_refresh.cpp
+    AlmondAI/src/scheduler.cpp
     AlmondAI/src/serve.cpp
     AlmondAI/src/tensor.cpp
+    AlmondAI/src/tokenizer_bpe.cpp
     AlmondAI/src/tokenizer_word.cpp
+    AlmondAI/src/trainer.cpp
+    AlmondAI/src/autopilot.cpp
     AlmondAI/src/train.cpp)
 
 add_library(almondai STATIC ${ALMONDAI_HEADERS} ${ALMONDAI_SOURCES})

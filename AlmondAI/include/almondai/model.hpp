@@ -24,6 +24,7 @@ public:
     explicit BaseDecoder(ModelConfig config);
 
     const ModelConfig& config() const noexcept { return m_config; }
+    void set_learning_rate(double lr) noexcept;
 
     struct ForwardResult {
         std::vector<double> logits;
@@ -36,6 +37,9 @@ public:
                                        const std::vector<double>& grad_logits);
 
     const std::vector<Tensor>& weights() const noexcept { return m_weights; }
+    std::vector<Tensor>& mutable_weights() noexcept { return m_weights; }
+    Tensor& output_projection() noexcept { return m_weights.back(); }
+    const Tensor& output_projection() const noexcept { return m_weights.back(); }
 
     bool save_weights(const std::string& path) const;
     bool load_weights(const std::string& path);
