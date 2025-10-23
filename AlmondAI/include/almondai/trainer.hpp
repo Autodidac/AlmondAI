@@ -64,6 +64,9 @@ public:
 
     std::size_t step() const noexcept { return m_step; }
 
+    StudentModel& model() noexcept { return m_model; }
+    const StudentModel& model() const noexcept { return m_model; }
+
     bool save_checkpoint() const;
 
 private:

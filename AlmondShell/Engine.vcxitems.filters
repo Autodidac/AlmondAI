@@ -558,6 +558,9 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\scheduler.hpp">
       <Filter>Header Files\AlmondAI</Filter>
     </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\tokenizer_coordinator.hpp">
+      <Filter>Header Files\AlmondAI</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\tokenizer_bpe.hpp">
       <Filter>Header Files\AlmondAI</Filter>
     </ClInclude>
@@ -669,6 +672,9 @@
       <Filter>Source Files\AlmondAI</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\scheduler.cpp">
+      <Filter>Source Files\AlmondAI</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\tokenizer_coordinator.cpp">
       <Filter>Source Files\AlmondAI</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\tokenizer_bpe.cpp">

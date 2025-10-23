@@ -26,6 +26,7 @@ set(ALMONDAI_HEADERS
     AlmondAI/include/almondai/scheduler.hpp
     AlmondAI/include/almondai/serve.hpp
     AlmondAI/include/almondai/tensor.hpp
+    AlmondAI/include/almondai/tokenizer_coordinator.hpp
     AlmondAI/include/almondai/tokenizer_bpe.hpp
     AlmondAI/include/almondai/tokenizer_word.hpp
     AlmondAI/include/almondai/trainer.hpp
@@ -51,6 +52,7 @@ set(ALMONDAI_SOURCES
     AlmondAI/src/scheduler.cpp
     AlmondAI/src/serve.cpp
     AlmondAI/src/tensor.cpp
+    AlmondAI/src/tokenizer_coordinator.cpp
     AlmondAI/src/tokenizer_bpe.cpp
     AlmondAI/src/tokenizer_word.cpp
     AlmondAI/src/trainer.cpp

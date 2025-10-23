@@ -73,9 +73,10 @@ std::unordered_set<int> token_set(const BpeTokenizer& tokenizer, const std::stri
 
 } // namespace
 
-Autopilot::Autopilot(Trainer& trainer, BpeTokenizer& tokenizer)
+Autopilot::Autopilot(Trainer& trainer, TokenizerCoordinator& tokenizers)
     : m_trainer(trainer)
-    , m_tokenizer(tokenizer)
+    , m_tokenizers(tokenizers)
+    , m_tokenizer(tokenizers.bpe())
     , m_training_path("data/training_data.jsonl")
     , m_seed_path("data/training_seed.jsonl")
     , m_eval_path("data/eval_seed.jsonl")
@@ -277,6 +278,11 @@ bool Autopilot::gate_sample(const TrainingExample& sample) const {
 }
 
 void Autopilot::enqueue_sample(const TrainingExample& sample) {
+    const auto ingest = m_tokenizers.ingest_training_pair(m_trainer.model(), sample.prompt, sample.teacher_output);
+    if (ingest.word_tokens_added > 0 || ingest.bpe_tokens_added > 0) {
+        m_trainer.model().base().save_weights(m_weights_path.string());
+        m_tokenizers.persist();
+    }
     if (!gate_sample(sample)) {
         return;
     }
@@ -307,6 +313,7 @@ void Autopilot::maybe_train() {
             << report.perplexity << ')';
         if (report.checkpoint_saved) {
             oss << " [checkpoint saved]";
+            m_tokenizers.persist(report.step);
         }
         log(oss.str());
         if (m_pending_since_train >= 64) {
@@ -374,6 +381,11 @@ void Autopilot::harvest_from_seed_files() {
         log("Bootstrapped training dataset with seed samples");
     }
     for (const auto& sample : existing) {
+        const auto added = m_tokenizers.ingest_training_pair(m_trainer.model(), sample.prompt, sample.teacher_output);
+        if (added.word_tokens_added > 0 || added.bpe_tokens_added > 0) {
+            m_trainer.model().base().save_weights(m_weights_path.string());
+            m_tokenizers.persist();
+        }
         m_trainer.append_training_example(sample);
         remember_output(sample.teacher_output);
     }

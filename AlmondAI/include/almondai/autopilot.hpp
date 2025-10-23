@@ -1,6 +1,7 @@
 #pragma once
 
 #include "trainer.hpp"
+#include "tokenizer_coordinator.hpp"
 
 #include <chrono>
 #include <deque>
@@ -18,7 +19,7 @@ class Autopilot {
 public:
     using TeacherCallback = std::function<std::optional<std::string>(const TrainingExample&)>;
 
-    Autopilot(Trainer& trainer, BpeTokenizer& tokenizer);
+    Autopilot(Trainer& trainer, TokenizerCoordinator& tokenizers);
 
     void set_teacher(TeacherCallback teacher) { m_teacher = std::move(teacher); }
 
@@ -26,6 +27,7 @@ public:
 
 private:
     Trainer& m_trainer;
+    TokenizerCoordinator& m_tokenizers;
     BpeTokenizer& m_tokenizer;
     TeacherCallback m_teacher;
 

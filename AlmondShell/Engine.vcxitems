@@ -33,6 +33,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\scheduler.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\serve.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\tensor.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\tokenizer_coordinator.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\tokenizer_bpe.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\tokenizer_word.hpp" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\AlmondAI\include\almondai\train.hpp" />
@@ -237,6 +238,7 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\scheduler.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\serve.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\tensor.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\tokenizer_coordinator.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\tokenizer_bpe.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\tokenizer_word.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\AlmondAI\src\train.cpp" />

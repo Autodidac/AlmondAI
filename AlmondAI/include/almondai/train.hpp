@@ -2,7 +2,7 @@
 
 #include "model.hpp"
 #include "adapter.hpp"
-#include "tokenizer_word.hpp"
+#include "tokenizer_coordinator.hpp"
 #include "ingest.hpp"
 #include "retrieval.hpp"
 #include "eval.hpp"
@@ -44,7 +44,7 @@ class ContinuousLearner {
 public:
     ContinuousLearner(StudentModel student,
                       AdapterManager adapters,
-                      WordTokenizer tokenizer,
+                      TokenizerCoordinator& tokenizers,
                       PolicyGovernor governor,
                       LoadStatusCallback load_callback = LoadStatusCallback());
 
@@ -67,6 +67,7 @@ public:
 
     StudentModel& student() { return m_student; }
     WordTokenizer& tokenizer() { return m_tokenizer; }
+    TokenizerCoordinator& tokenizers() { return *m_tokenizers; }
     AdapterManager& adapter_manager() { return m_adapters; }
     RetrievalIndex& retrieval() { return m_retrieval; }
     PolicyGovernor& governor() { return m_governor; }
@@ -78,7 +79,8 @@ public:
 private:
     StudentModel m_student;
     AdapterManager m_adapters;
-    WordTokenizer m_tokenizer;
+    TokenizerCoordinator* m_tokenizers;
+    WordTokenizer& m_tokenizer;
     RetrievalIndex m_retrieval;
     Evaluator m_evaluator;
     PolicyGovernor m_governor;
@@ -100,6 +102,7 @@ private:
                             std::string_view detail,
                             std::size_t completed = 0,
                             std::size_t total = 0);
+    void persist_state(std::optional<std::size_t> version = std::nullopt);
 };
 
 } // namespace almondai

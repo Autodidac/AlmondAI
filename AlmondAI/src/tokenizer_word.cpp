@@ -275,6 +275,7 @@ int WordTokenizer::token_id(const std::string& token) const {
 }
 
 void WordTokenizer::save_vocab(const std::string& path) const {
+    std::scoped_lock lock(m_mutex);
     std::ofstream file(path, std::ios::trunc);
     for (const auto& token : m_id_to_token) {
         file << std::quoted(token) << '\n';
@@ -308,6 +309,11 @@ void WordTokenizer::load_vocab(const std::string& path) {
         m_id_to_token.push_back(token);
     }
     ensure_special_tokens();
+}
+
+std::size_t WordTokenizer::vocab_size() const {
+    std::scoped_lock lock(m_mutex);
+    return m_id_to_token.size();
 }
 
 } // namespace almondai

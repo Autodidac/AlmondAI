@@ -23,7 +23,7 @@
 
 #include "../../../AlmondAI/include/almondai/serve.hpp"
 #include "../../../AlmondAI/include/almondai/adapter.hpp"
-#include "../../../AlmondAI/include/almondai/tokenizer_word.hpp"
+#include "../../../AlmondAI/include/almondai/tokenizer_coordinator.hpp"
 #include "../../../AlmondAI/include/almondai/json.hpp"
 #include "../../../AlmondAI/include/almondai/chat/backend.hpp"
 
@@ -123,7 +123,8 @@ private:
 int main() {
     using namespace almondai;
 
-    WordTokenizer tokenizer;
+    TokenizerCoordinator tokenizers;
+    WordTokenizer& tokenizer = tokenizers.word();
     const std::filesystem::path vocab_path = "data/vocab.txt";
     if (std::filesystem::exists(vocab_path)) {
         tokenizer.load_vocab(vocab_path.string());
@@ -131,6 +132,10 @@ int main() {
     else {
         tokenizer.save_vocab(vocab_path.string());
     }
+    const std::filesystem::path bpe_vocab_path = "data/bpe_vocab.txt";
+    const std::filesystem::path bpe_merges_path = "data/bpe_merges.txt";
+    tokenizers.bpe().load(bpe_vocab_path, bpe_merges_path);
+    tokenizers.set_persistence({vocab_path, bpe_vocab_path, bpe_merges_path});
 
     ModelConfig config;
     config.vocab_size = tokenizer.vocab().size();
@@ -232,7 +237,7 @@ int main() {
 
     ContinuousLearner learner(std::move(student),
         std::move(adapter_manager),
-        std::move(tokenizer),
+        tokenizers,
         std::move(governor),
         load_status_logger);
     learner.promote_adapter("default");
