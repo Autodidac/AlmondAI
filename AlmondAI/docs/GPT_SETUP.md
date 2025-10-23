@@ -78,6 +78,11 @@ browser. The standalone page exposes the same endpoint/model defaults and lets
 you send prompts directly to an LM Studio server using the OpenAI-compatible
 chat completions format.
 
+LM Studio's newer OpenAI-compatible builds stream replies as structured
+`content` arrays. AlmondAI and the bundled HTML harness now collapse those
+segments automatically so messages render in the UI and are attributed to the
+remote teacher instead of falling back to the local model.
+
 ## Seeding and persistence
 
 * `data/training_seed.jsonl` ships with three starter conversations. On first run the

@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.61.2]
+- Flattened LM Studio's segmented OpenAI-compatible replies so remote answers
+  remain tagged as teacher output instead of tripping the fallback route, and
+  updated the LM Studio docs to reflect the streaming change.
+- Replaced direct `getenv` calls with `_dupenv_s` on Windows builds to silence
+  MSVC's deprecation warning while keeping existing behaviour on other
+  platforms.
+
 ## [v0.61.1]
 - Rewrote the README console help section with tables and plain-language
   summaries, and added a dedicated `CONSOLE_HELP.md` reference for newcomers.

@@ -205,6 +205,9 @@ local while still exercising the continuous learner:
   [`AlmondAI/docs/GPT_SETUP.md`](AlmondAI/docs/GPT_SETUP.md) include quick-start
   notes plus an HTML harness you can open in a browser to sanity-check LM Studio
   connectivity before using the console.
+- Recent LM Studio builds emit multi-part `content` arrays. AlmondAI now
+  normalises those replies so they are logged and attributed correctly instead
+  of falling back to the local teacher when text arrives in segments.
 
 ### Fast LM Studio bootstrap
 
