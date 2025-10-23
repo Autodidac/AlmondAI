@@ -213,7 +213,7 @@ namespace almondai {
     }
 
     bool DataCurator::contains_forbidden(const std::string& t) {
-        static const std::regex r(R"((?i)\b(say nothing|i love you)\b)");
+        static const std::regex r(R"(\b(say nothing|i love you)\b)", std::regex::ECMAScript | std::regex::icase);
         return std::regex_search(t, r);
     }
 

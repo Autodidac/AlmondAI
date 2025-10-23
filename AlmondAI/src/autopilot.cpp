@@ -22,8 +22,8 @@ namespace {
 
 const std::regex& forbidden_regex() {
     static const std::regex pattern(
-        R"((?i)\b(say nothing|i love you|i['’]m sorry|i apologize|unable to (?:comply|complete|help)|i cannot|i can['’]?t|as an ai(?: language model)?|as a language model|i do not have the ability|policy violation|safety policy|content policy)\b)",
-        std::regex::ECMAScript);
+        R"(\b(say nothing|i love you|i['’]m sorry|i apologize|unable to (comply|complete|help)|i cannot|i can['’]?t|as an ai( language model)?|as a language model|i do not have the ability|policy violation|safety policy|content policy)\b)",
+        std::regex::ECMAScript | std::regex::icase);
     return pattern;
 }
 
