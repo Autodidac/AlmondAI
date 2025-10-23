@@ -6,6 +6,7 @@
 #include <iterator>
 #include <optional>
 #include <set>
+#include <system_error>
 
 namespace almondai {
 
@@ -60,37 +61,48 @@ BpeTokenizer::BpeTokenizer() {
     m_id_to_token.reserve(8192);
 }
 
+std::size_t BpeTokenizer::ingest_training_pair(std::string_view prompt, std::string_view teacher_output) {
+    std::scoped_lock lock(m_mutex);
+    const std::size_t before = m_id_to_token.size();
+    ensure_tokens_for(prompt);
+    ensure_tokens_for(teacher_output);
+    return m_id_to_token.size() - before;
+}
+
+std::size_t BpeTokenizer::vocab_size() const {
+    std::scoped_lock lock(m_mutex);
+    return m_id_to_token.size();
+}
+
 bool BpeTokenizer::load(const std::filesystem::path& vocab_path,
                         const std::filesystem::path& merges_path) {
-    (void)merges_path;
+    std::scoped_lock lock(m_mutex);
     m_vocab_path = vocab_path;
     m_ready = false;
     m_id_to_token.clear();
     m_token_to_id.clear();
+    m_recorded_merges.clear();
 
     std::ifstream vocab_file(vocab_path);
-    if (!vocab_file) {
-        return false;
-    }
-
-    std::string line;
-    while (std::getline(vocab_file, line)) {
-        if (line.empty()) {
-            continue;
+    if (vocab_file) {
+        std::string line;
+        while (std::getline(vocab_file, line)) {
+            if (line.empty()) {
+                continue;
+            }
+            auto not_space = [](unsigned char ch) { return !std::isspace(ch); };
+            line.erase(line.begin(), std::find_if(line.begin(), line.end(), not_space));
+            line.erase(std::find_if(line.rbegin(), line.rend(), not_space).base(), line.end());
+            if (line.empty()) {
+                continue;
+            }
+            if (m_token_to_id.find(line) != m_token_to_id.end()) {
+                continue;
+            }
+            const int id = static_cast<int>(m_id_to_token.size());
+            m_token_to_id.emplace(line, id);
+            m_id_to_token.push_back(line);
         }
-        // Trim whitespace
-        auto not_space = [](unsigned char ch) { return !std::isspace(ch); };
-        line.erase(line.begin(), std::find_if(line.begin(), line.end(), not_space));
-        line.erase(std::find_if(line.rbegin(), line.rend(), not_space).base(), line.end());
-        if (line.empty()) {
-            continue;
-        }
-        if (m_token_to_id.find(line) != m_token_to_id.end()) {
-            continue;
-        }
-        const int id = static_cast<int>(m_id_to_token.size());
-        m_token_to_id.emplace(line, id);
-        m_id_to_token.push_back(line);
     }
 
     if (m_id_to_token.size() < 3) {
@@ -103,12 +115,34 @@ bool BpeTokenizer::load(const std::filesystem::path& vocab_path,
         m_token_to_id["<unk>"] = UNK_ID;
     }
 
-    ensure_token("<pad>");
-    ensure_token("<eos>");
-    ensure_token("<unk>");
+    ensure_token("<pad>", false);
+    ensure_token("<eos>", false);
+    ensure_token("<unk>", false);
 
     for (const auto& token : kRequiredTokens) {
-        ensure_token(token);
+        ensure_token(token, false);
+    }
+
+    if (!merges_path.empty()) {
+        std::ifstream merges_file(merges_path);
+        if (merges_file) {
+            std::string merge_line;
+            while (std::getline(merges_file, merge_line)) {
+                if (merge_line.empty()) {
+                    continue;
+                }
+                auto not_space = [](unsigned char ch) { return !std::isspace(ch); };
+                merge_line.erase(merge_line.begin(), std::find_if(merge_line.begin(), merge_line.end(), not_space));
+                merge_line.erase(std::find_if(merge_line.rbegin(), merge_line.rend(), not_space).base(), merge_line.end());
+                if (merge_line.empty()) {
+                    continue;
+                }
+                ensure_token(merge_line, false);
+                if (std::find(m_recorded_merges.begin(), m_recorded_merges.end(), merge_line) == m_recorded_merges.end()) {
+                    m_recorded_merges.push_back(merge_line);
+                }
+            }
+        }
     }
 
     m_ready = true;
@@ -116,6 +150,7 @@ bool BpeTokenizer::load(const std::filesystem::path& vocab_path,
 }
 
 std::vector<int> BpeTokenizer::encode(std::string_view text) const {
+    std::scoped_lock lock(m_mutex);
     if (!m_ready) {
         return {};
     }
@@ -125,7 +160,7 @@ std::vector<int> BpeTokenizer::encode(std::string_view text) const {
         if (segment.empty()) {
             continue;
         }
-        auto pieces = tokenize_segment(segment);
+        auto pieces = tokenize_segment(segment, false);
         if (pieces.empty()) {
             pieces.push_back("<unk>");
         }
@@ -142,6 +177,7 @@ std::vector<int> BpeTokenizer::encode(std::string_view text) const {
 }
 
 std::string BpeTokenizer::decode(const std::vector<int>& tokens) const {
+    std::scoped_lock lock(m_mutex);
     if (!m_ready) {
         return {};
     }
@@ -187,6 +223,7 @@ std::string BpeTokenizer::decode(const std::vector<int>& tokens) const {
 }
 
 int BpeTokenizer::token_to_id(std::string_view token) const {
+    std::scoped_lock lock(m_mutex);
     auto it = m_token_to_id.find(std::string(token));
     if (it == m_token_to_id.end()) {
         return UNK_ID;
@@ -195,6 +232,7 @@ int BpeTokenizer::token_to_id(std::string_view token) const {
 }
 
 std::string BpeTokenizer::id_to_token(int id) const {
+    std::scoped_lock lock(m_mutex);
     if (id < 0 || static_cast<std::size_t>(id) >= m_id_to_token.size()) {
         return "<unk>";
     }
@@ -344,35 +382,92 @@ std::vector<std::string> BpeTokenizer::wordpiece_tokens(
     return pieces;
 }
 
-void BpeTokenizer::ensure_token(const std::string& token) {
+void BpeTokenizer::ensure_tokens_for(std::string_view text) {
+    const auto segments = segment_text(text);
+    for (const auto& segment : segments) {
+        tokenize_segment(segment, true);
+    }
+}
+
+bool BpeTokenizer::ensure_token(const std::string& token, bool record) {
     if (m_token_to_id.find(token) != m_token_to_id.end()) {
-        return;
+        return false;
     }
     const int id = static_cast<int>(m_id_to_token.size());
     m_token_to_id.emplace(token, id);
     m_id_to_token.push_back(token);
+    if (record) {
+        if (std::find(m_recorded_merges.begin(), m_recorded_merges.end(), token) == m_recorded_merges.end()) {
+            m_recorded_merges.push_back(token);
+        }
+    }
+    return true;
 }
 
-std::vector<std::string> BpeTokenizer::tokenize_segment(std::string_view segment) const {
+std::vector<std::string> BpeTokenizer::tokenize_segment(std::string_view segment, bool ensure_new_tokens) const {
     if (segment.empty()) {
         return {};
     }
     if (is_whitespace(segment)) {
+        if (ensure_new_tokens) {
+            const_cast<BpeTokenizer*>(this)->ensure_token(std::string(segment), false);
+        }
         return {std::string(segment)};
     }
 
     std::vector<std::string> new_tokens;
     auto pieces = wordpiece_tokens(segment, m_token_to_id, new_tokens);
-    // Attach any on-the-fly tokens
-    for (const auto& token : new_tokens) {
-        if (m_token_to_id.find(token) == m_token_to_id.end()) {
-            const_cast<BpeTokenizer*>(this)->ensure_token(token);
+    if (ensure_new_tokens) {
+        for (const auto& token : new_tokens) {
+            const_cast<BpeTokenizer*>(this)->ensure_token(token, true);
+        }
+        for (const auto& piece : pieces) {
+            const_cast<BpeTokenizer*>(this)->ensure_token(piece, false);
         }
     }
     if (!pieces.empty()) {
         return pieces;
     }
+    if (ensure_new_tokens) {
+        const_cast<BpeTokenizer*>(this)->ensure_token("<unk>", false);
+    }
     return {"<unk>"};
+}
+
+void BpeTokenizer::save_vocab(const std::filesystem::path& path) const {
+    if (path.empty()) {
+        return;
+    }
+    std::scoped_lock lock(m_mutex);
+    if (path.has_parent_path()) {
+        std::error_code ec;
+        std::filesystem::create_directories(path.parent_path(), ec);
+    }
+    std::ofstream out(path);
+    if (!out) {
+        return;
+    }
+    for (const auto& token : m_id_to_token) {
+        out << token << '\n';
+    }
+}
+
+void BpeTokenizer::save_merges(const std::filesystem::path& path) const {
+    if (path.empty()) {
+        return;
+    }
+    std::scoped_lock lock(m_mutex);
+    if (path.has_parent_path()) {
+        std::error_code ec;
+        std::filesystem::create_directories(path.parent_path(), ec);
+    }
+    std::ofstream out(path);
+    if (!out) {
+        return;
+    }
+    for (const auto& merge : m_recorded_merges) {
+        out << merge << '\n';
+    }
 }
 
 } // namespace almondai

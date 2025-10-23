@@ -42,6 +42,7 @@ public:
     void load_vocab(const std::string& path);
 
     const std::unordered_map<std::string, int>& vocab() const noexcept { return m_token_to_id; }
+    std::size_t vocab_size() const;
 
 private:
     TokenizerConfig m_config;
