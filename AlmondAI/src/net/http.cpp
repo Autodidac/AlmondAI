@@ -2,6 +2,7 @@
 
 #include <curl/curl.h>
 
+#include <cstdlib>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -30,6 +31,22 @@ size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userdata) {
     return total;
 }
 
+long resolve_timeout(long timeout_ms) {
+    if (timeout_ms > 0) {
+        return timeout_ms;
+    }
+
+    long resolved = 60000; // 60 seconds gives local servers (e.g. LM Studio) time to answer.
+    if (const char* raw = std::getenv("ALMONDAI_HTTP_TIMEOUT_MS")) {
+        char* end = nullptr;
+        const long candidate = std::strtol(raw, &end, 10);
+        if (end != raw && candidate > 0) {
+            resolved = candidate;
+        }
+    }
+    return resolved;
+}
+
 } // namespace
 
 namespace almondai::net {
@@ -39,6 +56,8 @@ std::string post_json(const std::string& url,
                       const std::vector<std::pair<std::string, std::string>>& headers,
                       long timeout_ms) {
     CurlGlobal global_guard;
+
+    const long resolved_timeout = resolve_timeout(timeout_ms);
 
     CURL* handle = curl_easy_init();
     if (!handle) {
@@ -52,8 +71,8 @@ std::string post_json(const std::string& url,
     curl_easy_setopt(handle, CURLOPT_POSTFIELDSIZE, static_cast<long>(body.size()));
     curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, write_callback);
     curl_easy_setopt(handle, CURLOPT_WRITEDATA, &response);
-    curl_easy_setopt(handle, CURLOPT_TIMEOUT_MS, timeout_ms);
-    curl_easy_setopt(handle, CURLOPT_CONNECTTIMEOUT_MS, timeout_ms);
+    curl_easy_setopt(handle, CURLOPT_TIMEOUT_MS, resolved_timeout);
+    curl_easy_setopt(handle, CURLOPT_CONNECTTIMEOUT_MS, resolved_timeout);
 
     struct curl_slist* header_list = nullptr;
     header_list = curl_slist_append(header_list, "Content-Type: application/json");

@@ -197,7 +197,10 @@ local while still exercising the continuous learner:
 
 - `chat use lmstudio` (or setting `ALMONDAI_CHAT_KIND=lmstudio`) wires the
   OpenAI-compatible endpoint `http://127.0.0.1:1234/v1/chat/completions` and
-  default model name `lmstudio` without any extra arguments.
+  default model name `lmstudio` without any extra arguments. Remote calls now
+  wait up to 60 seconds so local inference has time to respond. Override the
+  window (in milliseconds) with `ALMONDAI_HTTP_TIMEOUT_MS` if your host needs
+  longer or shorter deadlines.
 - The runtime enables "remote reply" auto-training when LM Studio is the active
   backend. Each completion is tagged with its source and streamed into the
   learner so the student weights evolve alongside LM Studio feedback.

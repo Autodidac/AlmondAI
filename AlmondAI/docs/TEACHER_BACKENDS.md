@@ -17,6 +17,7 @@ console harness under `AlmondShell/examples/AlmondAIRuntime`):
 | `ALMONDAI_ENDPOINT` | HTTPS endpoint for the chosen provider. |
 | `ALMONDAI_MODEL` | Model identifier requested from the provider (where applicable). |
 | `ALMONDAI_API_KEY` | Bearer token or API key required by the provider (if needed). |
+| `ALMONDAI_HTTP_TIMEOUT_MS` | Optional HTTP timeout override (milliseconds) for remote teachers. |
 
 When a backend is configured, teacher requests (`train.step`/`ingest.step` without
 an explicit `teacher_output`) call the remote model first, falling back to the
@@ -64,11 +65,13 @@ experiment with ensembles or fallback hierarchies tailored to your deployment.
 ## LM Studio quick start
 
 LM Studio exposes an OpenAI-compatible server on `http://127.0.0.1:1234` by
-default. Launch the server inside LM Studio, then either:
+default. Launch the server inside LM Studio, then choose one of the following:
 
 - export `ALMONDAI_CHAT_KIND=lmstudio` (the endpoint defaults to
   `http://127.0.0.1:1234/v1/chat/completions` and the model defaults to
-  `lmstudio`), or
+  `lmstudio`). Remote calls now wait up to 60 seconds so local inference has
+  time to answer. Adjust the deadline by exporting
+  `ALMONDAI_HTTP_TIMEOUT_MS=<milliseconds>` if you need a different window.
 - run `chat use lmstudio` from the AlmondAI console to apply the same defaults
   interactively (see [`CONSOLE_HELP.md`](CONSOLE_HELP.md) for command refresher
   tables).
