@@ -82,6 +82,10 @@ BaseDecoder::BaseDecoder(ModelConfig config) : m_config(config) {
     }
 }
 
+void BaseDecoder::set_learning_rate(double lr) noexcept {
+    m_config.learning_rate = lr;
+}
+
 BaseDecoder::ForwardResult BaseDecoder::forward(const std::vector<int>& tokens) const {
     ForwardResult result;
     result.hidden.assign(m_config.hidden_size, 0.0);
